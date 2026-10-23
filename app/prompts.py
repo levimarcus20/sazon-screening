@@ -136,6 +136,7 @@ class TurnPlan:
     slots: list[str] = dc_field(default_factory=list)
     detail: str = ""                  # extra context for the action
     tone: str = ""                    # e.g. off-topic / abusive handling
+    allow_correction: bool = False    # disqualify: tell them they can reply if it was a mistake
 
 
 ACTION_TEXT = {
@@ -170,13 +171,9 @@ ACTION_TEXT = {
         "deleted by the recruiting team. Thank them and close."
     ),
     "needs_review": (
-        "We couldn't complete the screening automatically ({detail}). Tell them a recruiter will personally "
-        "review their application and contact them. Thank them and close."
-    ),
-    "confirm_knockout": (
-        "They seem to have said that {detail}. Before going on, make sure you understood correctly: ask the "
-        "license question again as a plain yes/no question (e.g. 'Just to make sure: do you have a valid driving "
-        "license for a car or motorbike?'). Don't say yet that it's a requirement or what happens next."
+        "We couldn't complete the screening automatically (internal reason, never share it: {detail}). In a "
+        "neutral, warm tone, tell them a recruiter will personally review their application and contact them. "
+        "Thank them and close. Don't explain why, and don't mention their earlier, changed or unclear answers."
     ),
     "post_close": (
         "The screening is already finished (outcome: {detail}). Reply briefly and kindly; answer any question "
@@ -215,6 +212,10 @@ def render_turn_instructions(plan: TurnPlan, candidate: Candidate, config: Clien
         ask=ask, slots="\n".join(f"{i}) {s}" for i, s in enumerate(plan.slots, 1)),
         interview=interview, detail=plan.detail,
     ))
+    if plan.allow_correction:
+        lines.append("- End with one short, friendly sentence saying only this: if they answered by mistake, they "
+                     "can reply and you'll continue with the application (e.g. 'Si te has equivocado al responder, "
+                     "escríbeme y seguimos'). Don't mention other cases, reviews or exceptions.")
     return "\n".join(lines)
 
 

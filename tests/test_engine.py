@@ -140,7 +140,6 @@ def test_fallback_summary_is_bilingual(setup):
     cid = engine.start_conversation().id
     say(engine, llm, cid, ex(full_name="Luis Pérez"))
     say(engine, llm, cid, ex(license_status="no"))
-    say(engine, llm, cid, ex(license_status="no"))
     s = engine.generate_summary(cid)  # FakeLLM.summarize fails -> template
     assert "Disqualified" in s.en.headline and "Descartado" in s.es.headline
 
@@ -156,30 +155,20 @@ def test_transcript_translation_is_cached(setup):
     assert all(m.meta["translations"]["en"] == f"[en] {m.content}" for m in msgs)
 
 
-def test_no_license_is_confirmed_then_disqualifies(setup):
+def test_no_license_disqualifies_and_invites_correction(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
     say(engine, llm, cid, ex(full_name="Luis Pérez"))
     r = say(engine, llm, cid, ex(license_status="no"))
-    assert r.candidate.status == "in_progress" and r.candidate.stage == "license"
-    assert r.replies[0].meta["plan"]["action"] == "confirm_knockout"
-    c = say(engine, llm, cid, ex(license_status="no")).candidate
+    c = r.candidate
     assert c.status == "disqualified" and c.closed
     assert c.disqualification_reason.code == "no_license"
-
-
-def test_license_confirmation_can_correct_a_misread(setup):
-    engine, llm, _ = setup
-    cid = engine.start_conversation().id
-    say(engine, llm, cid, ex(full_name="Luis Pérez"))
-    say(engine, llm, cid, ex(license_status="no"))
-    c = say(engine, llm, cid, ex(license_status="yes")).candidate
-    assert c.status == "in_progress" and c.stage == "vehicle" and c.confirming is None
+    assert r.replies[0].meta["plan"]["allow_correction"] is True
+    assert "answered by mistake" in llm.last_instructions
 
 
 def _disqualify_for_license(engine, llm, cid):
     say(engine, llm, cid, ex(full_name="Pablo García"))
-    say(engine, llm, cid, ex(license_status="no"))
     return say(engine, llm, cid, ex(license_status="no")).candidate
 
 
@@ -198,10 +187,10 @@ def test_second_knockout_flip_goes_to_human_review(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
     _disqualify_for_license(engine, llm, cid)
-    say(engine, llm, cid, ex(license_status="yes"))           # correction 1: reopened
-    say(engine, llm, cid, ex(license_status="no"))            # confirm...
-    c = say(engine, llm, cid, ex(license_status="no")).candidate  # ...disqualified again
-    assert c.status == "disqualified"
+    say(engine, llm, cid, ex(license_status="yes"))               # correction 1: reopened
+    r = say(engine, llm, cid, ex(license_status="no"))            # disqualified again...
+    assert r.candidate.status == "disqualified"
+    assert r.replies[0].meta["plan"]["allow_correction"] is False  # ...without the invitation this time
     c = say(engine, llm, cid, ex(license_status="yes")).candidate  # correction 2
     assert c.status == "needs_review" and c.closed
     assert any(f.code == "repeated_knockout_change" for f in c.flags)

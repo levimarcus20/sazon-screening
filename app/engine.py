@@ -254,26 +254,13 @@ class ScreeningEngine:
             plan.problems.append(ex.ambiguity)
 
         # Knockouts: decided here, in code
-        if c.data.license_status in ("no", "in_progress"):
-            if c.confirming != "license":
-                # A "no" ends the application, and yes/no answers are easy to misread
-                # (by the candidate or the extractor): ask once more before closing.
-                said = c.data.license_status
-                c.confirming, c.data.license_status, c.stage = "license", None, "license"
-                plan.accepted = [a for a in plan.accepted if not a.startswith("license_status")]
-                plan.action, plan.field = "confirm_knockout", "license"
-                plan.detail = ("they don't have a driving license" if said == "no"
-                               else "they're still getting their driving license")
-                return plan
-            c.confirming = None
-            if c.data.license_status == "no":
-                return self._disqualify(c, Note(code="no_license"),
-                                        "a valid driving license (car or motorbike) is required for this role")
+        if c.data.license_status == "no":
+            return self._disqualify(c, Note(code="no_license"),
+                                    "a valid driving license (car or motorbike) is required for this role")
+        if c.data.license_status == "in_progress":
             return self._disqualify(c, Note(code="license_pending"),
                                     "a valid driving license is required; they don't have it yet, and they're "
                                     "welcome to apply again once they do")
-        if c.data.license_status == "yes":
-            c.confirming = None
         if out_of_area is not None:
             place = out_of_area.extra.get("place") or "their area"
             country = out_of_area.extra.get("country")
@@ -413,7 +400,7 @@ class ScreeningEngine:
             old_place = c.disqualification_reason.params.get("place", "?")
             c.flags.append(Note(code="location_corrected", params={"old": old_place, "new": new_city}))
         c.knockout_corrections += 1
-        c.status, c.closed, c.confirming = "in_progress", False, None
+        c.status, c.closed = "in_progress", False
         c.disqualification_reason = None
         c.summary = None  # written for the old outcome; regenerated when the screening ends again
         plan = self._advance(c, ex, results, now)
@@ -444,7 +431,10 @@ class ScreeningEngine:
     def _disqualify(self, c: Candidate, reason: Note, explanation: str) -> TurnPlan:
         c.disqualification_reason = reason
         c.interview_status = "not_applicable"
-        return self._close(c, "disqualified", "disqualify", detail=explanation)
+        plan = self._close(c, "disqualified", "disqualify", detail=explanation)
+        # The goodbye invites a correction (typos happen); only once, see _plan_after_close.
+        plan.allow_correction = c.knockout_corrections == 0
+        return plan
 
     def _fresh_slots(self, c: Candidate, city, now: datetime, exclude: set[datetime] | None = None) -> list[datetime]:
         cfg = self.config.interview
@@ -543,7 +533,6 @@ FALLBACK_ASK = {
 
 FALLBACK_ACTION = {
     "es": {
-        "confirm_knockout": "Solo para asegurarme: ¿tienes carnet de conducir vigente, de coche o de moto?",
         "offer_slots": "¡Cumples los requisitos! 🎉 ¿Qué hueco te va mejor para una videollamada de 15 minutos?\n{slots}",
         "offer_more_slots": "¡Sin problema! ¿Alguno de estos te va mejor?\n{slots}",
         "reoffer_slots": "¿Cuál de estos huecos te va mejor? Respóndeme con el número:\n{slots}",
@@ -556,7 +545,6 @@ FALLBACK_ACTION = {
         "post_close": "¡Gracias por tu mensaje! Un/a reclutador/a se pondrá en contacto contigo si hace falta.",
     },
     "en": {
-        "confirm_knockout": "Just to make sure: do you have a valid driving license for a car or motorbike?",
         "offer_slots": "You meet the requirements! 🎉 Which slot works best for a 15-minute video call?\n{slots}",
         "offer_more_slots": "No problem! Do any of these work better?\n{slots}",
         "reoffer_slots": "Which of these slots works best? Just reply with the number:\n{slots}",
@@ -576,7 +564,11 @@ def fallback_reply(plan: TurnPlan, c: Candidate) -> str:
     if plan.action == "ask":
         return FALLBACK_ASK[lang].get(plan.field or "", FALLBACK_ASK[lang]["full_name"])
     slots = "\n".join(f"{i}) {s}" for i, s in enumerate(plan.slots, 1))
-    return FALLBACK_ACTION[lang][plan.action].format(slots=slots, detail=plan.detail)
+    text = FALLBACK_ACTION[lang][plan.action].format(slots=slots, detail=plan.detail)
+    if plan.allow_correction:
+        text += (" Si te has equivocado al responder, escríbeme y seguimos." if lang == "es"
+                 else " If you answered by mistake, just reply and we'll continue.")
+    return text
 
 
 def fallback_summary(c: Candidate) -> RecruiterSummary:

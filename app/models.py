@@ -122,7 +122,6 @@ class Candidate(BaseModel):
     disqualification_reason: Note | None = None
     abusive_count: int = 0
     pending_place: str | None = None  # ambiguous place waiting for the country (e.g. Guadalajara)
-    confirming: str | None = None     # knockout stage we're double-checking before disqualifying
     knockout_corrections: int = 0     # times a disqualified candidate corrected a knockout answer
 
     # Interview scheduling
