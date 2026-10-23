@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Chat · Sofía · Grupo Sazón{% endblock %}
+{% block body %}
+<div class="chat-layout">
+  <section class="phone">
+    <div class="phone-head">
+      <div class="avatar">S</div>
+      <div class="who"><strong>Sofía · Grupo Sazón</strong><span id="presence">online</span></div>
+    </div>
+    <div class="messages" id="messages">
+      {% for m in messages %}
+      <div class="bubble {{ m.role }}">{{ m.content }}<time>{{ m.created_at.astimezone().strftime('%H:%M') }}</time></div>
+      {% if loop.last and m.role == 'agent' and not candidate.closed and m.meta.get('quick_replies') %}
+      <div class="quick-replies" data-replies='{{ m.meta.quick_replies | tojson | forceescape }}'></div>
+      {% endif %}
+      {% endfor %}
+      {% if candidate.closed %}<div class="closed-note">Screening finished</div>{% endif %}
+      <div class="typing" id="typing"><i></i><i></i><i></i></div>
+    </div>
+    <form class="composer" id="composer" autocomplete="off">
+      <input id="input" type="text" placeholder="Escribe un mensaje" maxlength="1000" autofocus>
+      <button type="submit" id="send" aria-label="Send">➤</button>
+    </form>
+  </section>
+
+  <aside class="card panel">
+    <h2>Live screening data</h2>
+    <p class="muted small">Demo view: what the system has extracted and validated so far. The candidate never sees this.</p>
+    <div class="pill-row">
+      <span class="badge" id="p-status"></span>
+      <span class="badge rs" id="p-stage"></span>
+      <span class="badge rs" id="p-lang"></span>
+    </div>
+    <div class="kv" id="p-fields"></div>
+    <div id="p-flags"></div>
+    <details>
+      <summary>Raw JSON</summary>
+      <pre id="p-json"></pre>
+    </details>
+    <div class="row" style="margin-top:16px">
+      <form method="post" action="/apply"><button class="btn" type="submit">↺ New applicant</button></form>
+      <a class="btn" href="/dashboard/candidates/{{ candidate.id }}">View in dashboard</a>
+    </div>
+  </aside>
+</div>
+<script>
+  window.CANDIDATE_ID = {{ candidate.id | tojson }};
+  window.INITIAL_STATE = {{ candidate_snapshot(candidate) | tojson }};
+</script>
+<script src="/static/chat.js"></script>
+{% endblock %}

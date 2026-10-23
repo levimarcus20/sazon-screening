@@ -1,0 +1,136 @@
+{
+  "client_name": "Grupo Sazón",
+  "agent_name": "Sofía",
+  "role": {
+    "es": "repartidor/a",
+    "en": "delivery driver"
+  },
+  "job_facts": [
+    "Role: delivery driver for Grupo Sazón's own restaurants (45 locations in Spain and Mexico). Deliveries are from the candidate's nearest Grupo Sazón restaurant.",
+    "Candidates use their own car or motorbike/scooter. Grupo Sazón provides the thermal delivery bag and uniform.",
+    "Full-time, part-time and weekend-only shifts are available. Shifts cover morning, afternoon and evening.",
+    "Process: this short chat screening, then a 15-minute video call with a recruiter, then onboarding.",
+    "Pay, contract type and fuel compensation depend on the city and the availability chosen; the recruiter explains them in detail during the video call. Never quote numbers.",
+    "The candidate's data is only used for this recruitment process. They can ask for it to be deleted at any time by replying 'delete my data'."
+  ],
+  "interview": {
+    "duration_minutes": 15,
+    "format": {
+      "es": "videollamada de 15 minutos con un/a reclutador/a",
+      "en": "15-minute video call with a recruiter"
+    },
+    "times": ["10:00", "12:30", "17:00"],
+    "slots_per_offer": 3,
+    "max_offer_rounds": 2
+  },
+  "known_platforms": {
+    "Glovo": ["glovo"],
+    "Uber Eats": ["uber eats", "ubereats", "uber"],
+    "Just Eat": ["just eat", "justeat"],
+    "Deliveroo": ["deliveroo"],
+    "Rappi": ["rappi"],
+    "DiDi Food": ["didi food", "didi", "didifood"],
+    "Stuart": ["stuart"],
+    "Amazon Flex": ["amazon flex", "amazon"],
+    "Telepizza": ["telepizza"],
+    "Domino's": ["dominos", "domino's", "domino"]
+  },
+  "cities": [
+    {
+      "id": "madrid", "name": "Madrid", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Centro", "Chamberí", "Salamanca", "Retiro", "Tetuán", "Arganzuela"],
+      "aliases": ["madrid capital", "madriz"],
+      "nearby": ["Pozuelo de Alarcón", "Alcobendas", "Getafe", "Leganés", "Alcorcón", "Malasaña", "Lavapiés", "Chueca", "Moncloa", "Vallecas", "Carabanchel", "Usera", "Latina"]
+    },
+    {
+      "id": "barcelona", "name": "Barcelona", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Eixample", "Gràcia", "Sants", "Sant Martí", "Les Corts"],
+      "aliases": ["barna", "bcn"],
+      "nearby": ["L'Hospitalet de Llobregat", "Hospitalet", "Badalona", "Sant Adrià de Besòs", "Esplugues de Llobregat", "Poblenou", "Raval", "Born", "Sarrià"]
+    },
+    {
+      "id": "valencia", "name": "Valencia", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Ruzafa", "Benimaclet", "Campanar"],
+      "aliases": ["valència"],
+      "nearby": ["Burjassot", "Mislata", "Paterna", "Russafa"]
+    },
+    {
+      "id": "sevilla", "name": "Sevilla", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Triana", "Nervión"],
+      "aliases": ["seville"],
+      "nearby": ["Dos Hermanas", "Mairena del Aljarafe"]
+    },
+    {
+      "id": "malaga", "name": "Málaga", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Málaga Centro", "Teatinos"],
+      "aliases": [],
+      "nearby": ["Torremolinos"]
+    },
+    {
+      "id": "bilbao", "name": "Bilbao", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Abando", "Deusto"],
+      "aliases": ["bilbo"],
+      "nearby": ["Barakaldo", "Getxo"]
+    },
+    {
+      "id": "zaragoza", "name": "Zaragoza", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Delicias", "Actur"],
+      "aliases": [],
+      "nearby": ["Utebo"]
+    },
+    {
+      "id": "alicante", "name": "Alicante", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Alicante Centro"],
+      "aliases": ["alacant"],
+      "nearby": ["San Vicente del Raspeig"]
+    },
+    {
+      "id": "murcia", "name": "Murcia", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Murcia Centro"],
+      "aliases": [],
+      "nearby": ["Molina de Segura"]
+    },
+    {
+      "id": "guadalajara_es", "name": "Guadalajara", "country": "ES", "timezone": "Europe/Madrid",
+      "locations": ["Guadalajara Centro"],
+      "aliases": [],
+      "nearby": ["Azuqueca de Henares"]
+    },
+    {
+      "id": "cdmx", "name": "Ciudad de México", "country": "MX", "timezone": "America/Mexico_City",
+      "locations": ["Polanco", "Condesa", "Roma", "Coyoacán", "Del Valle", "Santa Fe", "Narvarte"],
+      "aliases": ["cdmx", "df", "d.f.", "mexico city", "ciudad de mexico", "mexico df"],
+      "nearby": ["Benito Juárez", "Cuauhtémoc", "Miguel Hidalgo", "Álvaro Obregón", "Iztapalapa", "Tlalpan", "Azcapotzalco", "Gustavo A. Madero", "Naucalpan", "Tlalnepantla"]
+    },
+    {
+      "id": "guadalajara_mx", "name": "Guadalajara", "country": "MX", "timezone": "America/Mexico_City",
+      "locations": ["Providencia", "Chapalita", "Guadalajara Centro Histórico", "Andares"],
+      "aliases": ["gdl", "guanatos"],
+      "nearby": ["Zapopan", "Tlaquepaque", "Tonalá"]
+    },
+    {
+      "id": "monterrey", "name": "Monterrey", "country": "MX", "timezone": "America/Monterrey",
+      "locations": ["San Pedro Garza García", "Monterrey Centro", "Cumbres", "Contry"],
+      "aliases": ["mty"],
+      "nearby": ["San Pedro", "San Nicolás de los Garza", "Guadalupe", "Apodaca"]
+    },
+    {
+      "id": "puebla", "name": "Puebla", "country": "MX", "timezone": "America/Mexico_City",
+      "locations": ["Angelópolis", "Puebla Centro"],
+      "aliases": [],
+      "nearby": ["San Andrés Cholula", "Cholula"]
+    },
+    {
+      "id": "queretaro", "name": "Querétaro", "country": "MX", "timezone": "America/Mexico_City",
+      "locations": ["Juriquilla", "Querétaro Centro"],
+      "aliases": ["qro", "santiago de querétaro"],
+      "nearby": ["Corregidora", "El Marqués"]
+    },
+    {
+      "id": "merida", "name": "Mérida", "country": "MX", "timezone": "America/Merida",
+      "locations": ["Mérida Norte"],
+      "aliases": [],
+      "nearby": []
+    }
+  ]
+}

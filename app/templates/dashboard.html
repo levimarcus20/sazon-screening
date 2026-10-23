@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% set active = "dashboard" %}
+{% block title %}{{ t('Candidates') }} · Grupo Sazón{% endblock %}
+{% block body %}
+<main class="page">
+  <div class="dash-head">
+    <div>
+      <h1>{{ t('Candidates') }}</h1>
+      <p class="muted small" style="margin:4px 0 0">{{ total }} {{ t('applicants screened by Sofía. Qualified candidates are listed first.') }}</p>
+    </div>
+    <form method="post" action="/apply"><button class="btn primary" type="submit">{{ t('+ Simulate applicant') }}</button></form>
+  </div>
+
+  {% macro tab(value, text) -%}
+    {% set args = dict(filters, status=value) %}
+    <a href="/dashboard?{{ args | urlencode }}" class="{% if filters.status == value %}active{% endif %}">
+      {{ t(text) }}<span class="count">{{ total if value == '' else counts.get(value, 0) }}</span></a>
+  {%- endmacro %}
+  <div class="tabs">
+    {{ tab('', 'All') }}
+    {{ tab('qualified', 'Qualified') }}
+    {{ tab('needs_review', 'Needs review') }}
+    {{ tab('in_progress', 'In progress') }}
+    {{ tab('inactive', 'Inactive') }}
+    {{ tab('disqualified', 'Disqualified') }}
+    {{ tab('withdrawn', 'Withdrawn') }}
+  </div>
+
+  <form class="filters" method="get" action="/dashboard">
+    <input type="hidden" name="status" value="{{ filters.status }}">
+    <input type="search" name="q" value="{{ filters.q }}" placeholder="{{ t('Search name…') }}">
+    <select name="country" onchange="this.form.submit()">
+      <option value="">{{ t('All countries') }}</option>
+      <option value="ES" {% if filters.country == 'ES' %}selected{% endif %}>{{ t('Spain') }}</option>
+      <option value="MX" {% if filters.country == 'MX' %}selected{% endif %}>{{ t('Mexico') }}</option>
+    </select>
+    <select name="city" onchange="this.form.submit()">
+      <option value="">{{ t('All cities') }}</option>
+      {% for city in config.cities %}
+      <option value="{{ city.id }}" {% if filters.city == city.id %}selected{% endif %}>{{ city.name }} ({{ city.country }})</option>
+      {% endfor %}
+    </select>
+    <select name="availability" onchange="this.form.submit()">
+      <option value="">{{ t('Any availability') }}</option>
+      {% for v in ['full_time', 'part_time', 'weekends'] %}
+      <option value="{{ v }}" {% if filters.availability == v %}selected{% endif %}>{{ v | label }}</option>
+      {% endfor %}
+    </select>
+    <select name="schedule" onchange="this.form.submit()">
+      <option value="">{{ t('Any schedule') }}</option>
+      {% for v in ['morning', 'afternoon', 'evening', 'flexible'] %}
+      <option value="{{ v }}" {% if filters.schedule == v %}selected{% endif %}>{{ v | label }}</option>
+      {% endfor %}
+    </select>
+    <select name="recruiter_status" onchange="this.form.submit()">
+      <option value="">{{ t('Any pipeline stage') }}</option>
+      {% for v in ['new', 'contacted', 'interviewed', 'hired', 'rejected'] %}
+      <option value="{{ v }}" {% if filters.recruiter_status == v %}selected{% endif %}>{{ t(v | capitalize) }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit">{{ t('Filter') }}</button>
+    {% if filters.values() | select | list %}<a class="btn" href="/dashboard">{{ t('Clear') }}</a>{% endif %}
+  </form>
+
+  <div class="card table-wrap">
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>{{ t('Candidate') }}</th><th>{{ t('Screening') }}</th><th>{{ t('City') }}</th>
+          <th>{{ t('Availability') }}</th><th>{{ t('Schedule') }}</th><th>{{ t('Experience') }}</th>
+          <th>{{ t('Start') }}</th><th>{{ t('Interview') }}</th><th>{{ t('Pipeline') }}</th><th>{{ t('Updated') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in rows %}
+        {% set ds = display_status(c) %}
+        <tr onclick="location.href='/dashboard/candidates/{{ c.id }}'">
+          <td class="name-cell">
+            <strong>{{ c.data.full_name or t('Unnamed applicant') }}</strong>
+            <span class="muted small">
+              {%- if c.summary %}{{ c.summary.in_lang(lang).headline }}
+              {%- elif c.disqualification_reason %}{{ c.disqualification_reason | note }}
+              {%- else %}{{ t('stage') }}: {{ c.stage | stage_label }}{% endif -%}
+            </span>
+          </td>
+          <td><span class="badge {{ ds }}">{{ ds | status_label }}</span></td>
+          <td>{{ c.data.city or '—' }}{% if c.data.country %} <span class="muted small">{{ c.data.country }}</span>{% endif %}</td>
+          <td>{{ c.data.availability | label }}</td>
+          <td>{{ c.data.preferred_schedule | label }}</td>
+          <td>
+            {% if c.data.experience_years is not none %}
+              {{ '%g' % c.data.experience_years }}{{ t('y') }}{% if c.data.experience_platforms %} <span class="muted small">{{ c.data.experience_platforms | join(', ') }}</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>{{ c.data.start_date | day }}</td>
+          <td>
+            {% if c.interview_at %}{{ c.interview_at | slot }}
+            {% elif c.interview_status == 'pending' %}<span class="muted">{{ t('To schedule') }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td><span class="badge rs">{{ t(c.recruiter_status | capitalize) }}</span></td>
+          <td class="muted small">{{ c.updated_at | dt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">{{ t('No candidates match these filters.') }}</div>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

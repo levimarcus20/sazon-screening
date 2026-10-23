@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% set active = "home" %}
+{% block body %}
+<main class="page">
+  <section class="hero">
+    <h1>{{ t('Delivery driver screening') }}</h1>
+    <p>{{ t('Sofía screens every applicant over chat, any time of day, and recruiters only spend time on qualified candidates.') }}</p>
+    <div class="choices">
+      <div class="card">
+        <h2>🧑‍💼 {{ t('Simulate a new applicant') }}</h2>
+        <p>{{ t('Pretend someone just applied to the job ad. Sofía sends the first message and runs the screening, in Spanish or English.') }}</p>
+        <form method="post" action="/apply"><button class="btn primary" type="submit">{{ t('Start a conversation →') }}</button></form>
+      </div>
+      <div class="card">
+        <h2>📋 {{ t('Recruiter dashboard') }}</h2>
+        <p>{{ t('Every candidate with status, extracted data, AI summary and full transcript. Filter, review and update their status.') }}</p>
+        <a class="btn" href="/dashboard">{{ t('Open dashboard →') }}</a>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}

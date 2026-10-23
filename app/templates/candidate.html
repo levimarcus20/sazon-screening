@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% set active = "dashboard" %}
+{% block title %}{{ c.data.full_name or t('Candidate') }} · Grupo Sazón{% endblock %}
+{% block body %}
+{% set ds = display_status(c) %}
+{% set d = c.data %}
+<main class="page">
+  <a class="back" href="/dashboard">{{ t('← All candidates') }}</a>
+  {% if request.query_params.get('saved') %}<div class="notice">{{ t('Saved.') }}</div>{% endif %}
+  <div class="dash-head">
+    <div>
+      <h1>{{ d.full_name or t('Unnamed applicant') }}</h1>
+      <p class="muted small" style="margin:4px 0 0">
+        {{ t('Applied') }} {{ c.created_at | dt }} · {{ t('Language') }}: {{ c.language | upper }} · ID {{ c.id }}
+      </p>
+    </div>
+    <div class="row">
+      <span class="badge {{ ds }}">{{ ds | status_label }}</span>
+      <span class="badge rs">{{ t(c.recruiter_status | capitalize) }}</span>
+    </div>
+  </div>
+
+  <div class="detail">
+    <div class="stack">
+      <section class="card summary">
+        <h3>{{ t('AI summary') }}</h3>
+        {% if c.summary %}
+          {% set s = c.summary.in_lang(lang) %}
+          <div class="summary-headline">{{ s.headline }}</div>
+          <div>{{ s.summary }}</div>
+          <div class="cols">
+            <div><strong>{{ t('Highlights') }}</strong>
+              <ul>{% for h in s.highlights %}<li>{{ h }}</li>{% else %}<li class="muted">—</li>{% endfor %}</ul></div>
+            <div><strong>{{ t('To check') }}</strong>
+              <ul>{% for h in s.concerns %}<li>{{ h }}</li>{% else %}<li class="muted">{{ t('Nothing flagged') }}</li>{% endfor %}</ul></div>
+          </div>
+          <div class="next-step"><strong>{{ t('Next step:') }}</strong> {{ s.recommended_action }}</div>
+        {% else %}
+          <p class="muted">{% if c.closed %}{{ t('Summary is being generated, refresh in a few seconds.') }}{% else %}{{ t('Generated automatically when the screening ends. You can also generate one now.') }}{% endif %}</p>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <h3>{{ t('Screening data') }}</h3>
+        <div class="fields">
+          <div><span>{{ t('Full name') }}</span><strong>{{ d.full_name or '—' }}</strong></div>
+          <div><span>{{ t('Driving license') }}</span><strong>{{ d.license_status | label }}</strong></div>
+          <div><span>{{ t('Vehicle') }}</span><strong>{{ d.vehicle_type | label }}</strong></div>
+          <div><span>{{ t('City') }}</span><strong>{{ d.city or '—' }}{% if d.country %} ({{ d.country }}){% endif %}</strong></div>
+          <div><span>{{ t('Zone') }}</span><strong>{{ d.zone or '—' }}</strong></div>
+          <div><span>{{ t('Availability') }}</span><strong>{{ d.availability | label }}</strong></div>
+          <div><span>{{ t('Preferred schedule') }}</span><strong>{{ d.preferred_schedule | label }}</strong></div>
+          <div><span>{{ t('Experience') }}</span><strong>{{ ('%g ' % d.experience_years) ~ t('years') if d.experience_years is not none else '—' }}</strong></div>
+          <div><span>{{ t('Platforms') }}</span><strong>{{ d.experience_platforms | join(', ') or '—' }}</strong></div>
+          <div><span>{{ t('Start date') }}</span><strong>{{ d.start_date | day }}{{ ' ' ~ d.start_date.year if d.start_date else '' }}</strong></div>
+          <div><span>{{ t('Interview') }}</span><strong>
+            {% if c.interview_at %}{{ c.interview_at | slot }} <span class="muted small">{{ t("(candidate's local time)") }}</span>
+            {% elif c.interview_status == 'pending' %}{{ t('To schedule') }}{% else %}—{% endif %}</strong></div>
+          {% if c.disqualification_reason %}<div><span>{{ t('Disqualified because') }}</span><strong>{{ c.disqualification_reason | note }}</strong></div>{% endif %}
+        </div>
+        {% if c.flags %}
+          <h3 style="margin-top:18px">{{ t('Flags') }}</h3>
+          <ul class="flags">{% for f in c.flags %}<li>{{ f | note }}</li>{% endfor %}</ul>
+        {% endif %}
+      </section>
+
+      <section class="card" id="conversation">
+        <div class="section-head">
+          <h3>{{ t('Conversation') }}</h3>
+          {% if show_translation %}
+            <a class="btn small-btn" href="/dashboard/candidates/{{ c.id }}#conversation">{{ t('Hide translation') }}</a>
+          {% else %}
+            <form method="post" action="/dashboard/candidates/{{ c.id }}/translate" onsubmit="this.querySelector('button').disabled = true">
+              <button class="btn small-btn" type="submit">🌐 {{ t('Translate conversation to Spanish') if lang == 'es' else t('Translate conversation to English') }}</button>
+            </form>
+          {% endif %}
+        </div>
+        {% if translate_error %}<p class="error-text small">{{ t('Translation unavailable right now, please try again.') }}</p>{% endif %}
+        {% if show_translation %}<p class="muted small" style="margin:8px 0 0">{{ t('Machine translation shown under each message. The original messages are the source of truth.') }}</p>{% endif %}
+        <div class="transcript">
+          {% for m in messages %}
+          {% set tr = m.meta.get('translations', {}).get(lang) if show_translation else none %}
+          <div class="msg {{ m.role }}">{{ m.content }}
+            {%- if tr and tr.strip() != m.content.strip() %}<div class="translation">🌐 {{ tr }}</div>{% endif -%}
+            <time>{{ m.created_at | dt }}</time></div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <aside class="stack">
+      <section class="card">
+        <h3>{{ t('Recruiter actions') }}</h3>
+        <form class="actions-form" method="post" action="/dashboard/candidates/{{ c.id }}/update">
+          <label class="small muted" for="rs">{{ t('Pipeline stage') }}</label>
+          <select id="rs" name="recruiter_status">
+            {% for v in ['new', 'contacted', 'interviewed', 'hired', 'rejected'] %}
+            <option value="{{ v }}" {% if c.recruiter_status == v %}selected{% endif %}>{{ t(v | capitalize) }}</option>
+            {% endfor %}
+          </select>
+          <label class="small muted" for="notes">{{ t('Notes') }}</label>
+          <textarea id="notes" name="recruiter_notes" rows="5" placeholder="{{ t('e.g. Called on Tuesday, very motivated…') }}">{{ c.recruiter_notes }}</textarea>
+          <button class="btn primary" type="submit">{{ t('Save') }}</button>
+        </form>
+      </section>
+      <section class="card">
+        <h3>{{ t('More') }}</h3>
+        <div class="actions-form">
+          <form method="post" action="/dashboard/candidates/{{ c.id }}/summary">
+            <button class="btn" type="submit" style="width:100%">✨ {{ t('Regenerate AI summary') if c.summary else t('Generate AI summary') }}</button>
+          </form>
+          <a class="btn" href="/api/candidates/{{ c.id }}" download="candidate-{{ c.id }}.json">⬇ {{ t('Export JSON') }}</a>
+          <a class="btn" href="/chat/{{ c.id }}">💬 {{ t('Open candidate chat') }}</a>
+          <form method="post" action="/dashboard/candidates/{{ c.id }}/delete"
+                onsubmit="return confirm({{ t('Permanently delete this candidate and their conversation?') | tojson | forceescape }})">
+            <button class="btn danger" type="submit" style="width:100%">{{ t('Delete candidate data') }}</button>
+          </form>
+        </div>
+      </section>
+    </aside>
+  </div>
+</main>
+{% endblock %}

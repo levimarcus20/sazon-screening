@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Grupo Sazón · Screening{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="brand-mark">S</span> {{ t('Grupo Sazón · Hiring') }}</a>
+    <nav>
+      <a href="/dashboard" class="{% if active == 'dashboard' %}active{% endif %}">{{ t('Candidates') }}</a>
+      <a href="/" class="{% if active == 'home' %}active{% endif %}">{{ t('New applicant (demo)') }}</a>
+    </nav>
+    <div class="lang-switch" role="group" aria-label="Language">
+      <a href="/lang/en" class="{% if lang == 'en' %}active{% endif %}" aria-pressed="{{ 'true' if lang == 'en' else 'false' }}">EN</a>
+      <a href="/lang/es" class="{% if lang == 'es' %}active{% endif %}" aria-pressed="{{ 'true' if lang == 'es' else 'false' }}">ES</a>
+    </div>
+  </header>
+  {% block body %}{% endblock %}
+</body>
+</html>
