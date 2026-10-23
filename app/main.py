@@ -14,7 +14,9 @@ from pydantic import BaseModel
 
 from .client_config import get_client_config
 from .engine import CandidateNotFound, ScreeningEngine
-from .i18n import COOKIE_NAME, LANGUAGES, code_name, get_language, i18n_context, translate
+from .i18n import (
+    COOKIE_NAME, LANGUAGES, code_name, conversation_languages, get_language, i18n_context, translate,
+)
 from .llm import ClaudeLLM, LLMError
 from .models import Candidate, RecruiterStatus, utcnow
 from .scheduling import MONTHS, format_slot
@@ -233,9 +235,12 @@ def candidate_detail(request: Request, candidate_id: str, translated: int = 0, t
     candidate = storage.get_candidate(candidate_id)
     if candidate is None:
         raise HTTPException(404, "Candidate not found")
+    messages = storage.get_messages(candidate_id)
+    # Offer translation only if the candidate wrote in a language other than the UI's.
+    can_translate = bool(conversation_languages(messages) - {get_language(request)})
     return templates.TemplateResponse(request, "candidate.html", {
-        "c": candidate, "messages": storage.get_messages(candidate_id),
-        "show_translation": bool(translated), "translate_error": bool(translate_error),
+        "c": candidate, "messages": messages, "can_translate": can_translate,
+        "show_translation": bool(translated) and can_translate, "translate_error": bool(translate_error),
     })
 
 
@@ -253,16 +258,17 @@ def translate_conversation(request: Request, candidate_id: str):
 
 
 @app.post("/dashboard/candidates/{candidate_id}/update")
-def update_candidate(candidate_id: str, recruiter_status: RecruiterStatus = Form(...), recruiter_notes: str = Form("")):
+def update_candidate(candidate_id: str, recruiter_status: RecruiterStatus = Form(...), note: str = Form("")):
+    """Log a recruiter action (pipeline change and/or note) in the candidate's activity history."""
     with engine.candidate_lock(candidate_id):  # don't overwrite a chat turn happening right now
         candidate = storage.get_candidate(candidate_id)
         if candidate is None:
             raise HTTPException(404, "Candidate not found")
-        candidate.recruiter_status = recruiter_status
-        candidate.recruiter_notes = recruiter_notes.strip()
-        candidate.updated_at = utcnow()
-        storage.save_candidate(candidate)
-    return RedirectResponse(f"/dashboard/candidates/{candidate_id}?saved=1", status_code=303)
+        event = candidate.record_recruiter_action(recruiter_status, note)
+        if event:
+            storage.save_candidate(candidate)
+    result = "saved=1" if event else "nothing=1"
+    return RedirectResponse(f"/dashboard/candidates/{candidate_id}?{result}#activity", status_code=303)
 
 
 @app.post("/dashboard/candidates/{candidate_id}/summary")
