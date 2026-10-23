@@ -14,7 +14,7 @@ ES = {
     # navigation
     "Grupo Sazón · Hiring": "Grupo Sazón · Contratación",
     "Candidates": "Candidatos",
-    "New applicant (demo)": "Nuevo candidato (demo)",
+    "New applicant": "Nuevo candidato",
     # landing
     "Delivery driver screening": "Selección de repartidores",
     "Sofía screens every applicant over chat, any time of day, and recruiters only spend time on qualified candidates.":
@@ -147,12 +147,12 @@ ES.update({  # analytics
     "How candidates move through the screening conversation with Sofía.":
         "Cómo avanzan los candidatos en la conversación de preselección con Sofía.",
     "Conversations": "Conversaciones",
-    "Demo data (simulated)": "Datos de demostración (simulados)",
+    "Simulated data": "Datos simulados",
     "Live data": "Datos reales",
     "Last": "Últimos",
     "days": "días",
-    "Demo data: simulated screenings generated only for this view. They are not real applicants and never appear in the candidate list.":
-        "Datos de demostración: preselecciones simuladas generadas solo para esta vista. No son candidatos reales y nunca aparecen en la lista de candidatos.",
+    "Simulated screenings generated only for this view. They are not real applicants and never appear in the candidate list.":
+        "Preselecciones simuladas generadas solo para esta vista. No son candidatos reales y nunca aparecen en la lista de candidatos.",
     "No finished or abandoned conversations in this period yet.":
         "Aún no hay conversaciones terminadas o abandonadas en este periodo.",
     "Screenings started": "Preselecciones iniciadas",

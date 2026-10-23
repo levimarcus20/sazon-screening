@@ -12,7 +12,7 @@
     <nav>
       <a href="/dashboard" class="{% if active == 'dashboard' %}active{% endif %}">{{ t('Candidates') }}</a>
       <a href="/analytics" class="{% if active == 'analytics' %}active{% endif %}">{{ t('Screening Analytics') }}</a>
-      <a href="/" class="{% if active == 'home' %}active{% endif %}">{{ t('New applicant (demo)') }}</a>
+      <a href="/" class="{% if active == 'home' %}active{% endif %}">{{ t('New applicant') }}</a>
     </nav>
     <div class="lang-switch" role="group" aria-label="Language">
       <a href="/lang/en" class="{% if lang == 'en' %}active{% endif %}" aria-pressed="{{ 'true' if lang == 'en' else 'false' }}">EN</a>

@@ -16,7 +16,7 @@
 
   <form class="filters" method="get" action="/analytics">
     <select name="source" onchange="this.form.submit()">
-      <option value="demo" {% if filters.source == 'demo' %}selected{% endif %}>{{ t('Demo data (simulated)') }}</option>
+      <option value="demo" {% if filters.source == 'demo' %}selected{% endif %}>{{ t('Simulated data') }}</option>
       <option value="live" {% if filters.source == 'live' %}selected{% endif %}>{{ t('Live data') }} ({{ live_total }})</option>
     </select>
     <select name="days" onchange="this.form.submit()">
@@ -32,7 +32,7 @@
   </form>
 
   {% if filters.source == 'demo' %}
-  <div class="notice info">{{ t('Demo data: simulated screenings generated only for this view. They are not real applicants and never appear in the candidate list.') }}</div>
+  <div class="notice info">{{ t('Simulated screenings generated only for this view. They are not real applicants and never appear in the candidate list.') }}</div>
   {% endif %}
 
   {% if not s.concluded %}
