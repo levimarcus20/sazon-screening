@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% set active = "analytics" %}
+{% block title %}{{ t('Analytics') }} · Grupo Sazón{% endblock %}
+{% block body %}
+<main class="page">
+  <div class="dash-head">
+    <div>
+      <h1>{{ t('Analytics') }}</h1>
+      <p class="muted small" style="margin:4px 0 0">{{ t('How candidates move through the screening conversation with Sofía.') }}</p>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <a href="/analytics?{{ filters | urlencode }}" class="active">{{ t('Conversations') }}</a>
+  </div>
+
+  <form class="filters" method="get" action="/analytics">
+    <select name="source" onchange="this.form.submit()">
+      <option value="demo" {% if filters.source == 'demo' %}selected{% endif %}>{{ t('Demo data (simulated)') }}</option>
+      <option value="live" {% if filters.source == 'live' %}selected{% endif %}>{{ t('Live data') }} ({{ live_total }})</option>
+    </select>
+    <select name="days" onchange="this.form.submit()">
+      {% for d in [7, 30, 90] %}
+      <option value="{{ d }}" {% if filters.days == d %}selected{% endif %}>{{ t('Last') }} {{ d }} {{ t('days') }}</option>
+      {% endfor %}
+    </select>
+    <select name="country" onchange="this.form.submit()">
+      <option value="">{{ t('All countries') }}</option>
+      <option value="ES" {% if filters.country == 'ES' %}selected{% endif %}>{{ t('Spain') }}</option>
+      <option value="MX" {% if filters.country == 'MX' %}selected{% endif %}>{{ t('Mexico') }}</option>
+    </select>
+  </form>
+
+  {% if filters.source == 'demo' %}
+  <div class="notice info">{{ t('Demo data: simulated screenings generated only for this view. They are not real applicants and never appear in the candidate list.') }}</div>
+  {% endif %}
+
+  {% if not s.concluded %}
+  <div class="card empty">{{ t('No finished or abandoned conversations in this period yet.') }}</div>
+  {% else %}
+  <div class="kpis">
+    <div class="card kpi">
+      <span>{{ t('Screenings started') }}</span>
+      <strong>{{ s.started }}</strong>
+      <small>{{ s.active }} {{ t('still in progress') }}</small>
+    </div>
+    <div class="card kpi">
+      <span>{{ t('Completion rate') }}</span>
+      <strong>{{ s.completion_rate | pct }}</strong>
+      <small>{{ s.finished }} {{ t('of') }} {{ s.concluded }} {{ t('reached an outcome') }}</small>
+    </div>
+    <div class="card kpi">
+      <span>{{ t('Drop-off rate') }}</span>
+      <strong>{{ s.drop_rate | pct }}</strong>
+      <small>{% if s.top_dropoff %}{{ t('Most at:') }} {{ s.top_dropoff.stage | stage_label | capitalize }}{% else %}—{% endif %}</small>
+    </div>
+    <div class="card kpi">
+      <span>{{ t('Median duration') }}</span>
+      <strong>{{ s.duration.median | mins }}</strong>
+      <small>{{ t('Average') }} {{ s.duration.avg | mins }} · {{ t('90% within') }} {{ s.duration.p90 | mins }}</small>
+    </div>
+    <div class="card kpi">
+      <span>{{ t('Qualified') }}</span>
+      <strong>{{ s.qualified_rate | pct }}</strong>
+      <small>{{ s.booked_rate | pct }} {{ t('booked their interview in the chat') }}</small>
+    </div>
+  </div>
+
+  <div class="analytics-grid">
+    <section class="card">
+      <h2>{{ t('Drop-off by stage') }}</h2>
+      <p class="muted small">{{ t('Where candidates stopped replying. Reached = share of candidates who got to that question.') }}</p>
+      <table class="metric-table">
+        <thead><tr><th>{{ t('Stage') }}</th><th>{{ t('Reached') }}</th><th class="num">{{ t('Stopped here') }}</th><th class="num">{{ t('Drop-off') }}</th><th class="num">{{ t('Disqualified') }}</th></tr></thead>
+        <tbody>
+          {% for f in s.funnel %}
+          <tr class="{% if s.top_dropoff and f.stage == s.top_dropoff.stage %}hot{% endif %}">
+            <td>{{ f.stage | stage_label | capitalize }}</td>
+            <td><div class="bar"><i style="width: {{ ((f.reached_rate or 0) * 100) | round(1) }}%"></i><b>{{ f.reached_rate | pct }}</b></div></td>
+            <td class="num">{{ f.dropped }}</td>
+            <td class="num">{{ f.drop_rate | pct }}</td>
+            <td class="num">{{ f.disqualified or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <div class="stack">
+      <section class="card">
+        <h2>{{ t('Outcomes') }}</h2>
+        <div class="stacked">
+          {% for name, n, rate in s.outcomes if n %}<i class="o-{{ name }}" style="width: {{ (rate * 100) | round(2) }}%" title="{{ t(outcome_names[name]) }}: {{ rate | pct }}"></i>{% endfor %}
+        </div>
+        <ul class="legend">
+          {% for name, n, rate in s.outcomes %}
+          <li><i class="o-{{ name }}"></i>{{ t(outcome_names[name]) }}<span>{{ n }} · {{ rate | pct }}</span></li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>{{ t('Duration by outcome') }}</h2>
+        <p class="muted small">{{ t("From Sofía's first message to the outcome.") }}</p>
+        <table class="metric-table">
+          <thead><tr><th>{{ t('Outcome') }}</th><th class="num">{{ t('Count') }}</th><th class="num">{{ t('Median') }}</th><th class="num">{{ t('Average') }}</th></tr></thead>
+          <tbody>
+            {% for outcome, d in s.duration_by_outcome %}
+            <tr><td>{{ outcome | status_label }}</td><td class="num">{{ d.count }}</td><td class="num">{{ d.median | mins }}</td><td class="num">{{ d.avg | mins }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>{{ t('Completion by segment') }}</h2>
+      <table class="metric-table">
+        <thead><tr><th>{{ t('Segment') }}</th><th class="num">{{ t('Conversations') }}</th><th>{{ t('Completion rate') }}</th><th class="num">{{ t('Median duration') }}</th></tr></thead>
+        <tbody>
+          {% for g in s.segments if g.concluded %}
+          <tr>
+            <td>{{ t(g.name) }}</td>
+            <td class="num">{{ g.concluded }}</td>
+            <td><div class="bar"><i style="width: {{ ((g.completion or 0) * 100) | round(1) }}%"></i><b>{{ g.completion | pct }}</b></div></td>
+            <td class="num">{{ g.median | mins }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>{{ t('Screenings per day') }}</h2>
+      <div class="daily" style="--max: {{ s.daily_max or 1 }}">
+        {% for d in s.daily %}
+        <div class="day" title="{{ d.date | day }}: {{ d.started }} {{ t('started') }}, {{ d.finished }} {{ t('reached an outcome') }}">
+          <i class="started" style="height: calc({{ d.started }} / var(--max) * 100%)"></i>
+          <i class="finished" style="height: calc({{ d.finished }} / var(--max) * 100%)"></i>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="daily-axis muted small"><span>{{ s.daily[0].date | day }}</span><span>{{ s.daily[-1].date | day }}</span></div>
+      <ul class="legend inline">
+        <li><i class="started"></i>{{ t('Started') }}</li>
+        <li><i class="finished"></i>{{ t('Reached an outcome') }}</li>
+      </ul>
+    </section>
+  </div>
+
+  <p class="muted small footnote">
+    {{ t('Rates count concluded conversations only: finished, or no reply for') }} {{ inactive_hours }} h.
+    {{ s.active }} {{ t('conversations with a recent reply are left out until they finish or go quiet.') }}
+  </p>
+  {% endif %}
+</main>
+{% endblock %}
