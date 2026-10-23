@@ -19,9 +19,9 @@
       "es": "videollamada de 15 minutos con un/a reclutador/a",
       "en": "15-minute video call with a recruiter"
     },
-    "times": ["10:00", "12:30", "17:00"],
-    "slots_per_offer": 3,
-    "max_offer_rounds": 2
+    "times": ["10:00", "12:00", "16:00", "18:00"],
+    "business_days": 5,
+    "min_notice_hours": 2
   },
   "known_platforms": {
     "Glovo": ["glovo"],

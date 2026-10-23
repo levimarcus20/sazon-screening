@@ -72,12 +72,13 @@ def test_happy_path_to_booked_interview(setup):
     say(engine, llm, cid, ex(experience_years="2", experience_platforms="Glovo"))
     r = say(engine, llm, cid, ex(start_date="2026-11-02"))
     c = r.candidate
-    assert c.status == "qualified" and c.stage == "scheduling" and len(c.offered_slots) == 3
-    assert "Good news" in llm.last_instructions
+    # Friday 11:00 in Madrid: today 16:00 + 18:00 (2 h notice), then 4 more working days x 4 times
+    assert c.status == "qualified" and c.stage == "scheduling" and len(c.offered_slots) == 18
+    assert "Good news" in llm.last_instructions and "calendar" in llm.last_instructions
 
-    r = say(engine, llm, cid, ex(slot_choice="2"))
+    r = say(engine, llm, cid, ex(slot_choice="2026-10-26 12:00"))  # "el lunes a las doce"
     c = r.candidate
-    assert c.interview_status == "booked" and c.interview_at == c.offered_slots[1]
+    assert c.interview_status == "booked" and c.interview_at.isoformat() == "2026-10-26T12:00:00+01:00"
     assert c.closed and r.closed_now
     assert storage.booked_slots("madrid") == {c.interview_at}
 
@@ -89,24 +90,58 @@ def _reach_scheduling(engine, llm, cid):
     return say(engine, llm, cid, ex(start_date="2026-11-02"))
 
 
-def test_slot_offer_has_buttons_and_tap_books_without_llm(setup):
+def test_slot_offer_shows_a_week_calendar_and_tap_books_without_llm(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
     r = _reach_scheduling(engine, llm, cid)
-    buttons = r.replies[0].meta["quick_replies"]
-    assert [b["payload"] for b in buttons] == ["slot:1", "slot:2", "slot:3", "slot:none"]
+    picker = r.replies[0].meta["slot_picker"]
+    assert [d["name"] for d in picker["days"]] == ["Hoy", "Lun", "Mar", "Mié", "Jue"]  # weekend skipped
+    today = picker["days"][0]["slots"]
+    assert [s["time"] for s in today] == ["10:00", "12:00", "16:00", "18:00"]
+    assert [bool(s.get("payload")) for s in today] == [False, False, True, True]  # too soon -> greyed out
+    tuesday_4pm = picker["days"][2]["slots"][2]
     # No scripted extraction: if the engine called the LLM extractor this would fail over to "unclear".
-    r = engine.handle_message(cid, buttons[2]["label"], payload="slot:3")
-    assert r.candidate.interview_status == "booked" and r.candidate.interview_at == r.candidate.offered_slots[2]
+    c = engine.handle_message(cid, tuesday_4pm["label"], payload=tuesday_4pm["payload"]).candidate
+    assert c.interview_status == "booked" and c.interview_at.isoformat() == "2026-10-27T16:00:00+01:00"
 
 
-def test_none_button_offers_new_slots(setup):
+def test_slot_taken_meanwhile_shows_fresh_calendar(setup):
+    engine, llm, storage = setup
+    cid = engine.start_conversation().id
+    slot = _reach_scheduling(engine, llm, cid).candidate.offered_slots[0]
+    assert storage.book_slot("madrid", slot, engine.start_conversation().id)  # another candidate was faster
+    r = engine.handle_message(cid, "Hoy 16:00", payload=f"slot:{slot.isoformat()}")
+    c = r.candidate
+    assert c.interview_status == "pending" and slot not in c.offered_slots
+    assert r.replies[0].meta["plan"]["action"] == "slot_taken" and r.replies[0].meta["slot_picker"]
+
+
+def test_time_that_isnt_free_is_not_booked(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
-    first = _reach_scheduling(engine, llm, cid).candidate.offered_slots
-    r = engine.handle_message(cid, "Ninguna me va bien", payload="slot:none")
-    assert set(r.candidate.offered_slots).isdisjoint(first)
-    assert r.replies[0].meta["quick_replies"]
+    _reach_scheduling(engine, llm, cid)
+    c = say(engine, llm, cid, ex(slot_choice="2026-10-24 10:00")).candidate  # a Saturday
+    assert c.interview_status == "pending" and not c.closed
+    assert "not one of the free interview times" in llm.last_instructions
+
+
+def test_none_of_these_hands_over_to_a_recruiter(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    _reach_scheduling(engine, llm, cid)
+    c = engine.handle_message(cid, "Ninguna me va bien", payload="slot:none").candidate
+    assert c.closed and c.interview_status == "pending"
+    assert any(f.code == "schedule_manually" for f in c.flags)
+
+
+def test_weekend_calendar_starts_on_monday():
+    from datetime import timedelta
+    from app.scheduling import available_slots
+    city = get_client_config().city_by_id("madrid")
+    saturday = datetime(2026, 10, 24, 9, 0, tzinfo=timezone.utc)
+    slots = available_slots(city, ["10:00", "12:00", "16:00", "18:00"], set(), saturday, 5, timedelta(hours=2))
+    assert len(slots) == 20 and slots[0].isoformat() == "2026-10-26T10:00:00+01:00"
+    assert {s.weekday() for s in slots} == {0, 1, 2, 3, 4}
 
 
 def test_stale_button_is_not_trusted(setup):
@@ -433,13 +468,13 @@ def test_call_start_greets_and_repeats_the_pending_question(setup):
     assert r.candidate.stage == "license" and len(storage.get_messages(cid)) == 4
 
 
-def test_call_during_scheduling_reads_slots_out_instead_of_buttons(setup):
+def test_call_during_scheduling_suggests_times_instead_of_calendar(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
     _reach_scheduling(engine, llm, cid)
     r = engine.start_call(cid)
-    assert "reading them out" in llm.last_instructions and "tap" not in llm.last_instructions
-    assert r.replies[0].meta["quick_replies"]  # buttons stay visible in the chat window
+    assert "suggest two of them" in llm.last_instructions and "calendar" not in llm.last_instructions
+    assert r.replies[0].meta["slot_picker"]  # the calendar stays usable in the chat window
 
 
 def test_call_fallback_greeting_when_llm_is_down(setup):

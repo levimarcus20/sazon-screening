@@ -134,8 +134,7 @@ class Candidate(BaseModel):
     knockout_corrections: int = 0     # times a disqualified candidate corrected a knockout answer
 
     # Interview scheduling
-    offered_slots: list[datetime] = Field(default_factory=list)
-    slot_offer_rounds: int = 0
+    offered_slots: list[datetime] = Field(default_factory=list)  # free slots in the calendar shown
     interview_status: Literal["not_applicable", "pending", "booked"] = "not_applicable"
     interview_at: datetime | None = None
 

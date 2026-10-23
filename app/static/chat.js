@@ -102,29 +102,63 @@
     }
   }
 
-  // Tap-to-choose buttons under a message (interview slots). Tapping sends the
-  // label as the visible message plus a payload the server handles without the LLM.
-  function fillQuickReplies(container, replies) {
-    replies.forEach(r => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = r.label;
-      btn.addEventListener("click", () => Chat.onQuickReply(r.label, r.payload));
-      container.appendChild(btn);
-    });
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    if (tag === "button") node.type = "button";
+    return node;
   }
 
-  function addQuickReplies(replies) {
-    if (!replies || !replies.length) return;
-    const container = document.createElement("div");
-    container.className = "quick-replies";
-    fillQuickReplies(container, replies);
-    messagesEl.insertBefore(container, typingEl);
+  // Calendar card under a slot offer (on WhatsApp this would be a Flow): one tab per
+  // working day, that day's times (taken or too-soon ones greyed out), then Confirm.
+  // Confirming sends the slot's label as the visible message plus a payload naming
+  // the slot, which the server handles without the LLM.
+  function fillSlotPicker(card, picker) {
+    let dayIdx = Math.max(0, picker.days.findIndex(d => d.slots.some(s => s.payload)));
+    let chosen = null;
+    const tabs = el("div", "picker-days"), grid = el("div", "picker-times");
+    const confirm = el("button", "picker-confirm"), none = el("button", "picker-none", picker.none);
+
+    function render() {
+      tabs.innerHTML = "";
+      grid.innerHTML = "";
+      picker.days.forEach((d, i) => {
+        const tab = el("button", "picker-day" + (i === dayIdx ? " active" : ""));
+        tab.append(el("strong", "", d.name), el("span", "", d.date));
+        if (!d.slots.some(s => s.payload)) tab.classList.add("full");
+        tab.addEventListener("click", () => { dayIdx = i; render(); });
+        tabs.appendChild(tab);
+      });
+      const day = picker.days[dayIdx];
+      if (!day.slots.some(s => s.payload)) grid.appendChild(el("div", "picker-empty", picker.empty));
+      day.slots.forEach(s => {
+        const b = el("button", "picker-time" + (chosen === s ? " selected" : ""), s.time);
+        if (s.payload) b.addEventListener("click", () => { chosen = s; render(); });
+        else b.disabled = true;
+        grid.appendChild(b);
+      });
+      confirm.disabled = !chosen;
+      confirm.textContent = chosen ? `${picker.confirm}: ${chosen.label}` : picker.confirm;
+    }
+
+    confirm.addEventListener("click", () => chosen && Chat.onSlotPick(chosen.label, chosen.payload));
+    none.addEventListener("click", () => Chat.onSlotPick(picker.none, picker.none_payload));
+    card.append(el("div", "picker-title", "📅 " + picker.title), tabs, grid, confirm, none);
+    render();
+  }
+
+  function addSlotPicker(picker) {
+    clearSlotPickers();  // only the latest calendar is live
+    if (!picker) return;
+    const card = el("div", "slot-picker");
+    fillSlotPicker(card, picker);
+    messagesEl.insertBefore(card, typingEl);
     scrollDown();
   }
 
-  function clearQuickReplies() {
-    messagesEl.querySelectorAll(".quick-replies").forEach(el => el.remove());
+  function clearSlotPickers() {
+    messagesEl.querySelectorAll(".slot-picker").forEach(node => node.remove());
   }
 
   async function postJSON(url, body) {
@@ -145,14 +179,14 @@
   }
 
   async function send(text, payload) {
-    clearQuickReplies();  // any new message makes older buttons stale
+    clearSlotPickers();  // any new message makes an open calendar stale
     addBubble("candidate", text, timeNow());
     setBusy(true);
     try {
       const body = await postMessage(text, payload);
       body.replies.forEach(r => {
         addBubble("agent", r.content, timeNow());
-        addQuickReplies(r.quick_replies);
+        addSlotPicker(r.slot_picker);
       });
       renderPanel(body.candidate);
     } catch (err) {
@@ -172,14 +206,14 @@
 
   const Chat = window.Chat = {
     state: null,
-    timeNow, addBubble, addNote, addQuickReplies, clearQuickReplies, setBusy, renderPanel, postJSON, postMessage,
-    onQuickReply: send,  // voice.js swaps this during a call
+    timeNow, addBubble, addNote, addSlotPicker, clearSlotPickers, setBusy, renderPanel, postJSON, postMessage,
+    onSlotPick: send,  // voice.js swaps this during a call
     sendTyped: send,
   };
 
-  // Buttons rendered by the server (page reloaded while slots were on offer)
-  messagesEl.querySelectorAll(".quick-replies[data-replies]").forEach(el => {
-    fillQuickReplies(el, JSON.parse(el.dataset.replies));
+  // Calendar rendered by the server (page reloaded while slots were on offer)
+  messagesEl.querySelectorAll(".slot-picker[data-picker]").forEach(card => {
+    fillSlotPicker(card, JSON.parse(card.dataset.picker));
   });
   renderPanel(window.INITIAL_STATE);
   scrollDown();

@@ -181,7 +181,7 @@ templates.env.globals.update(candidate_snapshot=candidate_snapshot)
 def turn_response(result: TurnResult) -> dict:
     return {
         "replies": [{"content": m.content, "created_at": m.created_at.isoformat(),
-                     "quick_replies": m.meta.get("quick_replies", [])} for m in result.replies],
+                     "slot_picker": m.meta.get("slot_picker")} for m in result.replies],
         "candidate": candidate_snapshot(result.candidate),
     }
 

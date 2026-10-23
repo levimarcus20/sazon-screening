@@ -5,6 +5,7 @@ from datetime import date
 
 from .client_config import ClientConfig
 from .models import Candidate, Message
+from .scheduling import PICKER_TEXT
 
 # ---------------------------------------------------------------------------
 # 1. Extraction: candidate message -> structured field updates
@@ -35,7 +36,10 @@ now name an area ("Chamberí", "cerca de Atocha", "Barrio del Pilar"), output it
 - experience_years: number of years of delivery/courier experience as a decimal ("6 months" -> "0.5", "since 2022" -> computed from today). "0" if they have no experience.
 - experience_platforms: comma-separated list of delivery platforms/companies ("Glovo, Uber Eats"). "none" if no experience.
 - start_date: YYYY-MM-DD. Resolve relative dates using today's date ({today}, {weekday}). "ASAP"/"right now"/"ya" -> today. "next week" -> next Monday. "in two weeks" -> today + 14 days. A month name alone -> the 1st of that month.
-- slot_choice: only when interview slots were offered: the slot number ("1", "2", "3") or "none" if none work for them.
+- slot_choice: only when interview slots were offered: the day and time they chose as "YYYY-MM-DD HH:MM" \
+(24-hour clock: "el jueves a las 6 de la tarde" -> "2026-10-29 18:00"), even if it's not in the offered list; \
+or "none" if none of the days/times work for them. If they give only a day, or a time that could match several \
+slots, leave it out and explain in "ambiguity".
 
 Rules:
 - Never guess or invent a value. If an answer is vague or contradictory, leave the field out and explain it in "ambiguity".
@@ -75,7 +79,7 @@ def build_extraction_input(
             "'Globo' for Glovo, 'uber its' for Uber Eats). Interpret by how it sounds, but never invent a value."
         )
     if slot_labels:
-        lines.append("Interview slots offered: " + "; ".join(f"{i}) {s}" for i, s in enumerate(slot_labels, 1)))
+        lines.append("Free interview slots offered: " + "; ".join(slot_labels))
     lines.append("\nRecent conversation:")
     for m in recent:
         who = "Assistant" if m.role == "agent" else "Candidate"
@@ -155,16 +159,19 @@ class TurnPlan:
 ACTION_TEXT = {
     "ask": "Ask {ask}.",
     "offer_slots": (
-        "Good news: they meet all the requirements. Say so briefly, then offer an interview ({interview}). "
-        "List these slots as a numbered list exactly as written. They also appear as tap buttons under your "
-        "message, so ask them to tap one or reply with the number (or say if none works):\n{slots}"
+        "Good news: they meet all the requirements. Say so briefly, then invite them to an interview "
+        "({interview}). A calendar with the free times for the next few working days appears under your "
+        "message: ask them to pick the day and time that suit them there, or to tap '{none}'. "
+        "Don't list the times. For reference only, the free times are:\n{slots}"
     ),
-    "offer_more_slots": (
-        "None of the previous slots worked. Say no problem and offer these alternatives as a numbered list "
-        "exactly as written; they also appear as tap buttons. Ask which one suits them:\n{slots}"
+    "slot_taken": (
+        "The time they picked was just taken by someone else. Apologise briefly and ask them to pick another "
+        "time in the updated calendar under your message. Don't list the times. Free times now:\n{slots}"
     ),
     "reoffer_slots": (
-        "Ask them to tap one of these interview slots (or reply with its number), or to tell you if none works:\n{slots}"
+        "Ask them to pick a day and time in the calendar under your message (or just tell you one), or to tap "
+        "'{none}'. If they asked about a specific day or time, answer from the free times "
+        "below; otherwise don't list them:\n{slots}"
     ),
     "confirm_booking": (
         "Confirm their interview ({interview}) on {detail} (local time). Tell them they'll get the link and a "
@@ -195,20 +202,20 @@ ACTION_TEXT = {
     ),
 }
 
-# On a call there are no buttons or lists: slots are read out instead.
+# On a call nobody can read a calendar: suggest a few times and let them name any other.
 VOICE_ACTION_TEXT = {
     "offer_slots": (
         "Good news: they meet all the requirements. Say so briefly, then offer an interview ({interview}). "
-        "Read out these options in one natural sentence ('the first is..., the second..., or the third...') "
-        "and ask which one they prefer, or whether none of them works:\n{slots}"
+        "Suggest only the first two or three of these free times in one natural sentence, and say they can "
+        "also tell you another day and time that suits them over the next few working days:\n{slots}"
     ),
-    "offer_more_slots": (
-        "None of the previous slots worked. Say no problem and read out these alternatives in one natural "
-        "sentence, then ask which one suits them:\n{slots}"
+    "slot_taken": (
+        "The time they picked was just taken. Apologise briefly, suggest two other free times from this list "
+        "in one sentence, or let them name another day and time:\n{slots}"
     ),
     "reoffer_slots": (
-        "Ask which of these interview options suits them, reading them out briefly in one sentence, "
-        "or whether none works:\n{slots}"
+        "Ask which day and time suits them for the interview. If they asked about a specific day, answer from "
+        "these free times; otherwise suggest two of them in one sentence:\n{slots}"
     ),
 }
 
@@ -256,7 +263,7 @@ def render_turn_instructions(plan: TurnPlan, candidate: Candidate, config: Clien
     action_text = (VOICE_ACTION_TEXT if voice else {}).get(plan.action, ACTION_TEXT[plan.action])
     lines.append("- Now: " + action_text.format(
         ask=ask, slots="\n".join(f"{i}) {s}" for i, s in enumerate(plan.slots, 1)),
-        interview=interview, detail=plan.detail,
+        interview=interview, detail=plan.detail, none=PICKER_TEXT[candidate.language]["none"],
     ))
     if plan.allow_correction:
         example = "Si te has equivocado al responder, dímelo y seguimos" if voice else \

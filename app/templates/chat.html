@@ -12,8 +12,8 @@
     <div class="messages" id="messages">
       {% for m in messages %}
       <div class="bubble {{ m.role }}">{{ m.content }}<time>{% if m.meta.get('channel') == 'voice' %}📞 {% endif %}{{ m.created_at.astimezone().strftime('%H:%M') }}</time></div>
-      {% if loop.last and m.role == 'agent' and not candidate.closed and m.meta.get('quick_replies') %}
-      <div class="quick-replies" data-replies='{{ m.meta.quick_replies | tojson | forceescape }}'></div>
+      {% if loop.last and m.role == 'agent' and not candidate.closed and m.meta.get('slot_picker') %}
+      <div class="slot-picker" data-picker='{{ m.meta.slot_picker | tojson | forceescape }}'></div>
       {% endif %}
       {% endfor %}
       {% if candidate.closed %}<div class="closed-note finished">Screening finished</div>{% endif %}

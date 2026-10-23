@@ -21,7 +21,7 @@ import threading
 import unicodedata
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .client_config import ClientConfig
@@ -34,7 +34,7 @@ from .prompts import (
     CALL_START, FIELD_ASKS, TurnPlan, build_extraction_input, build_summary_input, opening_message,
     render_turn_instructions,
 )
-from .scheduling import available_slots, format_slot
+from .scheduling import available_slots, format_slot, slot_calendar, slot_key
 from .settings import Settings
 from .storage import Storage
 from .validation import FieldResult, validate_extraction
@@ -45,7 +45,7 @@ KNOCKOUT_ATTEMPTS = 3      # unclear answers before a human takes over
 OPTIONAL_ATTEMPTS = 2      # unclear answers before we skip a non-knockout question
 ABUSE_LIMIT = 3
 RECENT_MESSAGES_FOR_EXTRACTION = 6
-SLOT_ACTIONS = {"offer_slots", "offer_more_slots", "reoffer_slots"}
+SLOT_ACTIONS = {"offer_slots", "slot_taken", "reoffer_slots"}
 
 FIELD_TO_STAGE = {
     "full_name": "full_name", "license_status": "license", "vehicle_type": "vehicle",
@@ -132,7 +132,7 @@ class ScreeningEngine:
             msg = Message(candidate_id=c.id, role="agent", content=text, created_at=self.clock(),
                           meta={"plan": asdict(plan), "channel": "voice", "call_event": "start"})
             if plan.action in SLOT_ACTIONS:
-                msg.meta["quick_replies"] = self._slot_buttons(c)
+                msg.meta["slot_picker"] = self._slot_picker(c)
             self.storage.add_message(msg)
             c.updated_at = self.clock()
             self.storage.save_candidate(c)
@@ -184,7 +184,7 @@ class ScreeningEngine:
         if channel == "voice":
             incoming.meta["channel"] = agent_msg.meta["channel"] = "voice"
         if plan.action in SLOT_ACTIONS:
-            agent_msg.meta["quick_replies"] = self._slot_buttons(c)
+            agent_msg.meta["slot_picker"] = self._slot_picker(c)
         self.storage.add_message(incoming)
         self.storage.add_message(agent_msg)
         self.storage.save_candidate(c)
@@ -362,40 +362,43 @@ class ScreeningEngine:
             c.status = "qualified"
             c.interview_status = "pending"
         city = self.config.city_by_id(c.data.city_id)
-        cfg = self.config.interview
         lang = c.language
 
         if entering or not c.offered_slots:
-            c.offered_slots = self._fresh_slots(c, city, now)
-            c.slot_offer_rounds = 1
-            return self._slot_plan(plan, "offer_slots", c, lang)
+            return self._offer(c, city, plan, "offer_slots", now)
 
+        # The choice is a local "YYYY-MM-DD HH:MM": matched exactly against the free slots in
+        # code, so the model can never book a different time than the one the candidate said.
         choice = next((r.value for r in results if r.field == "slot_choice"), None)
-        if choice and choice.isdigit() and 1 <= int(choice) <= len(c.offered_slots):
-            slot = c.offered_slots[int(choice) - 1]
-            if self.storage.book_slot(city.id, slot, c.id):
+        slot = next((s for s in c.offered_slots if slot_key(s) == choice), None)
+        if slot is not None:
+            if slot > now and self.storage.book_slot(city.id, slot, c.id):
                 c.interview_status, c.interview_at = "booked", slot
                 c.closed, c.stage = True, "done"
                 plan.action, plan.detail = "confirm_booking", format_slot(slot, lang)
                 return plan
-            plan.problems.append("that slot was just taken by someone else")
-            c.offered_slots = self._fresh_slots(c, city, now)
-            return self._slot_plan(plan, "offer_more_slots", c, lang)
+            choice = "taken"
+        if choice == "taken":  # someone else booked it first (or it's no longer in the future)
+            return self._offer(c, city, plan, "slot_taken", now)
+        if choice == "none":   # nothing in the next days works: a recruiter arranges it
+            return self._scheduling_pending(c, plan)
+        if choice:             # a day/time that isn't free (weekend, outside hours, already taken)
+            plan.problems.append(f"{choice} is not one of the free interview times")
 
-        if choice == "none":
-            if c.slot_offer_rounds >= cfg["max_offer_rounds"]:
-                return self._scheduling_pending(c, plan)
-            c.offered_slots = self._fresh_slots(c, city, now, exclude=set(c.offered_slots))
-            c.slot_offer_rounds += 1
-            return self._slot_plan(plan, "offer_more_slots", c, lang)
-
-        # Didn't pick a slot (a question, an unclear answer...): show the same slots
+        # Didn't pick a slot (a question, an unclear answer...): show the calendar
         # again, and hand over to a recruiter if it keeps failing.
         if not plan.question:
             c.attempts["scheduling"] = c.attempts.get("scheduling", 0) + 1
             if c.attempts["scheduling"] >= OPTIONAL_ATTEMPTS:
                 return self._scheduling_pending(c, plan)
-        return self._slot_plan(plan, "reoffer_slots", c, lang)
+        return self._offer(c, city, plan, "reoffer_slots", now)
+
+    def _offer(self, c: Candidate, city, plan: TurnPlan, action: str, now: datetime) -> TurnPlan:
+        """(Re)build the calendar from live availability; no free slot at all -> a recruiter schedules."""
+        c.offered_slots = self._fresh_slots(city, now)
+        if not c.offered_slots:
+            return self._scheduling_pending(c, plan)
+        return self._slot_plan(plan, action, c, c.language)
 
     def _scheduling_pending(self, c: Candidate, plan: TurnPlan) -> TurnPlan:
         c.flags.append(Note(code="schedule_manually"))
@@ -490,34 +493,40 @@ class ScreeningEngine:
         plan.allow_correction = c.knockout_corrections == 0
         return plan
 
-    def _fresh_slots(self, c: Candidate, city, now: datetime, exclude: set[datetime] | None = None) -> list[datetime]:
+    def _fresh_slots(self, city, now: datetime) -> list[datetime]:
         cfg = self.config.interview
-        return available_slots(city, cfg["times"], self.storage.booked_slots(city.id),
-                               exclude or set(), cfg["slots_per_offer"], now)
+        return available_slots(city, cfg["times"], self.storage.booked_slots(city.id), now,
+                               cfg["business_days"], timedelta(hours=cfg["min_notice_hours"]))
 
     def _slot_plan(self, plan: TurnPlan, action: str, c: Candidate, lang: str) -> TurnPlan:
         plan.action = action
         plan.slots = [format_slot(s, lang) for s in c.offered_slots]
         return plan
 
-    def _slot_buttons(self, c: Candidate) -> list[dict]:
-        """Tap-to-choose buttons under a slot offer (WhatsApp: reply buttons / list message)."""
-        buttons = [{"label": format_slot(s, c.language).capitalize(), "payload": f"slot:{i}"}
-                   for i, s in enumerate(c.offered_slots, 1)]
-        none_label = "Ninguna me va bien" if c.language == "es" else "None of these work"
-        return buttons + [{"label": none_label, "payload": "slot:none"}]
+    def _slot_picker(self, c: Candidate) -> dict:
+        """The calendar card under a slot offer (on WhatsApp: a Flow with a date/time picker)."""
+        cfg = self.config.interview
+        return slot_calendar(self.config.city_by_id(c.data.city_id), cfg["times"], c.offered_slots,
+                             self.clock(), cfg["business_days"], c.language)
 
     def _extraction_from_payload(self, c: Candidate, payload: str | None, text: str) -> Extraction | None:
-        """Turn a tapped slot button into an extraction without calling the LLM.
+        """Turn a tapped calendar slot ("slot:<ISO datetime>" or "slot:none") into an
+        extraction without calling the LLM.
 
-        Only trusted while we're actually waiting for a slot choice; anything else
-        (stale button, unknown payload) falls back to normal LLM extraction.
+        Payloads name the slot itself, not a position in a list, so a tap on an older
+        calendar can't book the wrong time. Only trusted while we're waiting for a
+        slot choice; anything else falls back to normal LLM extraction.
         """
         if not payload or c.closed or c.stage != "scheduling" or not payload.startswith("slot:"):
             return None
         choice = payload.removeprefix("slot:")
-        if choice != "none" and not (choice.isdigit() and 1 <= int(choice) <= len(c.offered_slots)):
-            return None
+        if choice != "none":
+            try:
+                slot = datetime.fromisoformat(choice)
+            except ValueError:
+                return None
+            # Not on offer any more means someone else booked it, or it's too late now.
+            choice = slot_key(slot) if slot in c.offered_slots else "taken"
         return Extraction(language=c.language, intent="answer", candidate_question="", ambiguity="",
                           updates=[FieldUpdate(field="slot_choice", value=choice, evidence=text)])
 
@@ -528,7 +537,8 @@ class ScreeningEngine:
             current = "choosing an interview slot"
         else:
             current = FIELD_ASKS.get(current, current)
-        slot_labels = [format_slot(s, c.language) for s in c.offered_slots] if c.stage == "scheduling" else []
+        slot_labels = ([f"{format_slot(s, c.language)} [{slot_key(s)}]" for s in c.offered_slots]
+                       if c.stage == "scheduling" else [])
         user_input = build_extraction_input(c, history[-RECENT_MESSAGES_FOR_EXTRACTION:], text, current,
                                             slot_labels, channel)
         try:
@@ -598,9 +608,9 @@ FALLBACK_ASK = {
 
 FALLBACK_ACTION = {
     "es": {
-        "offer_slots": "¡Cumples los requisitos! 🎉 ¿Qué hueco te va mejor para una videollamada de 15 minutos?\n{slots}",
-        "offer_more_slots": "¡Sin problema! ¿Alguno de estos te va mejor?\n{slots}",
-        "reoffer_slots": "¿Cuál de estos huecos te va mejor? Respóndeme con el número:\n{slots}",
+        "offer_slots": "¡Cumples los requisitos! 🎉 Elige en el calendario el día y la hora que mejor te vengan para una videollamada de 15 minutos.",
+        "slot_taken": "¡Vaya! Esa hora acaba de ocuparse. Elige otra en el calendario, por favor.",
+        "reoffer_slots": "Elige en el calendario el día y la hora que mejor te vengan, o pulsa «Ninguna me va bien».",
         "confirm_booking": "¡Perfecto! Tu entrevista queda reservada para el {detail}. Te enviaremos el enlace antes. ¡Gracias!",
         "scheduling_pending": "¡Sin problema! Un/a reclutador/a te contactará en las próximas 48 horas para buscar un horario. ¡Gracias!",
         "disqualify": "Gracias por tu interés. Lamentablemente no podemos seguir con tu candidatura en este momento. ¡Mucha suerte!",
@@ -610,9 +620,9 @@ FALLBACK_ACTION = {
         "post_close": "¡Gracias por tu mensaje! Un/a reclutador/a se pondrá en contacto contigo si hace falta.",
     },
     "en": {
-        "offer_slots": "You meet the requirements! 🎉 Which slot works best for a 15-minute video call?\n{slots}",
-        "offer_more_slots": "No problem! Do any of these work better?\n{slots}",
-        "reoffer_slots": "Which of these slots works best? Just reply with the number:\n{slots}",
+        "offer_slots": "You meet the requirements! 🎉 Pick the day and time that suit you best in the calendar for a 15-minute video call.",
+        "slot_taken": "Oops, that time was just taken. Please pick another one in the calendar.",
+        "reoffer_slots": "Pick the day and time that suit you best in the calendar, or tap “None of these work”.",
         "confirm_booking": "Great! Your interview is booked for {detail}. We'll send you the link beforehand. Thanks!",
         "scheduling_pending": "No problem! A recruiter will contact you within 48 hours to find a time. Thanks!",
         "disqualify": "Thanks for your interest. Unfortunately we can't move forward with your application right now. Best of luck!",

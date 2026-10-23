@@ -176,7 +176,7 @@
   // ------------------------------------------------------------- call flow
 
   async function takeTurn(text, payload) {
-    Chat.clearQuickReplies();
+    Chat.clearSlotPickers();
     Chat.addBubble("candidate", text, Chat.timeNow(), true);
     interimEl.textContent = "";
     setPhase("thinking");
@@ -201,7 +201,7 @@
     }
     for (const r of body.replies) {
       Chat.addBubble("agent", r.content, Chat.timeNow(), !!call);
-      Chat.addQuickReplies(r.quick_replies);
+      Chat.addSlotPicker(r.slot_picker);
       if (call) {
         setPhase("speaking");
         await speak(r.content);
@@ -224,13 +224,12 @@
     langBtn.textContent = call.lang.toUpperCase();
     muteBtn.classList.remove("on");
     Chat.addNote("📞 " + L().started);
-    Chat.onQuickReply = (label, payload) => { stopListening(); synth.cancel(); takeTurn(label, payload); };
+    Chat.onSlotPick = (label, payload) => { stopListening(); synth.cancel(); takeTurn(label, payload); };
     call.clock = setInterval(updatePresence, 1000);
     updatePresence();
     setPhase("connecting");
     try {
       const body = await Chat.postJSON(`/api/chat/${window.CANDIDATE_ID}/call`);
-      Chat.clearQuickReplies();
       await handleReplies(body);
     } catch (err) {
       hangUp();
@@ -250,7 +249,7 @@
     composer.hidden = false;
     callBtn.hidden = !!Chat.state.closed;
     presence.textContent = "online";
-    Chat.onQuickReply = Chat.sendTyped;
+    Chat.onSlotPick = Chat.sendTyped;
     Chat.addNote(`📞 ${TEXT[ended.lang].ended} · ${mmss(Date.now() - ended.startedAt)}`);
   }
 
