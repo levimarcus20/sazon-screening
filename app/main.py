@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
@@ -13,7 +14,7 @@ from jinja2 import pass_context
 from pydantic import BaseModel
 
 from .client_config import get_client_config
-from .engine import CandidateNotFound, ScreeningEngine
+from .engine import CallNotAvailable, CandidateNotFound, ScreeningEngine, TurnResult
 from .i18n import (
     COOKIE_NAME, LANGUAGES, code_name, conversation_languages, get_language, i18n_context, translate,
 )
@@ -147,6 +148,7 @@ def chat_page(request: Request, candidate_id: str):
 class IncomingMessage(BaseModel):
     text: str
     payload: str | None = None  # set when the candidate taps a quick-reply button
+    channel: Literal["chat", "voice"] = "chat"  # "voice": text is a speech-to-text transcript
 
 
 def candidate_snapshot(c: Candidate) -> dict:
@@ -161,10 +163,18 @@ def candidate_snapshot(c: Candidate) -> dict:
 templates.env.globals.update(candidate_snapshot=candidate_snapshot)
 
 
+def turn_response(result: TurnResult) -> dict:
+    return {
+        "replies": [{"content": m.content, "created_at": m.created_at.isoformat(),
+                     "quick_replies": m.meta.get("quick_replies", [])} for m in result.replies],
+        "candidate": candidate_snapshot(result.candidate),
+    }
+
+
 @app.post("/api/chat/{candidate_id}/messages")
 def post_message(candidate_id: str, body: IncomingMessage, background: BackgroundTasks):
     try:
-        result = engine.handle_message(candidate_id, body.text, body.payload)
+        result = engine.handle_message(candidate_id, body.text, body.payload, body.channel)
     except CandidateNotFound:
         raise HTTPException(404, "Conversation not found")
     except Exception:
@@ -174,11 +184,18 @@ def post_message(candidate_id: str, body: IncomingMessage, background: Backgroun
         })
     if result.closed_now:
         background.add_task(engine.generate_summary, candidate_id, only_if_closed=True)
-    return {
-        "replies": [{"content": m.content, "created_at": m.created_at.isoformat(),
-                     "quick_replies": m.meta.get("quick_replies", [])} for m in result.replies],
-        "candidate": candidate_snapshot(result.candidate),
-    }
+    return turn_response(result)
+
+
+@app.post("/api/chat/{candidate_id}/call")
+def start_call(candidate_id: str):
+    """Voice mode: the browser does speech-to-text / text-to-speech; turns then go to /messages."""
+    try:
+        return turn_response(engine.start_call(candidate_id))
+    except CandidateNotFound:
+        raise HTTPException(404, "Conversation not found")
+    except CallNotAvailable:
+        raise HTTPException(409, "This screening has already finished.")
 
 
 @app.get("/api/candidates/{candidate_id}")

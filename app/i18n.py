@@ -137,6 +137,9 @@ ES.update({
     "Saved to the activity history below.": "Guardado en el historial de actividad.",
     "Nothing to save: change the pipeline stage or write a note.":
         "Nada que guardar: cambia la etapa del proceso o escribe una nota.",
+    "Voice call": "Llamada de voz",
+    "Back to chat": "De vuelta al chat",
+    "Spoken on a voice call (speech-to-text transcript)": "Dicho en una llamada de voz (transcripción automática)",
 })
 
 TRANSLATIONS = {"en": {}, "es": ES}
@@ -183,6 +186,8 @@ NOTES = {
                            "es": "Primero dijo que vive en {old} y, tras ser descartado, lo corrigió a {new}"},
     "repeated_knockout_change": {"en": "Changed their {stage} answer again after a correction: needs human review",
                                  "es": "Volvió a cambiar su respuesta sobre {stage} tras una corrección: requiere revisión"},
+    "name_by_voice": {"en": "Name captured on a voice call: check the spelling",
+                      "es": "Nombre recogido por llamada de voz: comprueba cómo se escribe"},
     "text": {"en": "{text}", "es": "{text}"},
 }
 

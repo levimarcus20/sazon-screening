@@ -36,6 +36,7 @@ class FakeLLM:
 
     def reply(self, history, instructions):
         self.last_instructions = instructions
+        self.last_history = history
         if self.fail_reply:
             raise LLMError("down")
         return "REPLY: " + instructions.splitlines()[-1]
@@ -165,6 +166,19 @@ def test_no_license_disqualifies_and_invites_correction(setup):
     assert c.disqualification_reason.code == "no_license"
     assert r.replies[0].meta["plan"]["allow_correction"] is True
     assert "answered by mistake" in llm.last_instructions
+
+
+def test_unsure_license_extraction_is_asked_again_not_disqualified(setup):
+    """Regression: "de moto pero no de coche" was extracted as in_progress (with an ambiguity note) and disqualified."""
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    say(engine, llm, cid, ex(full_name="Juan Bernal"))
+    unsure = ex(license_status="in_progress", vehicle_type="motorcycle")
+    unsure.ambiguity = "Has a motorcycle license but not a car license; in_progress is uncertain"
+    c = say(engine, llm, cid, unsure).candidate
+    assert c.status == "in_progress" and not c.closed and c.stage == "license"
+    assert c.data.license_status is None and c.data.vehicle_type == "motorcycle"
+    assert "car or a motorbike (either one is enough)" in llm.last_instructions
 
 
 def _disqualify_for_license(engine, llm, cid):
@@ -375,6 +389,73 @@ def test_post_close_change_of_other_field_is_only_flagged(setup):
     c = say(engine, llm, cid, ex(availability="full_time")).candidate
     assert c.status == "disqualified" and c.closed
     assert any("tried to change" in f.text() for f in c.flags)
+
+
+# ------------------------------------------------------------------ voice
+
+
+def voice(engine, llm, cid, extraction):
+    llm.extractions.append(extraction)
+    return engine.handle_message(cid, "transcript", channel="voice")
+
+
+def test_voice_turn_is_marked_and_phrased_for_speech(setup):
+    engine, llm, storage = setup
+    cid = engine.start_conversation().id
+    voice(engine, llm, cid, ex(full_name="Ana García"))
+    assert "VOICE CALL" in llm.last_instructions
+    candidate_msg, agent_msg = storage.get_messages(cid)[-2:]
+    assert candidate_msg.meta["channel"] == agent_msg.meta["channel"] == "voice"
+    say(engine, llm, cid, ex(license_status="yes"))  # back to typing: chat style again
+    assert "VOICE CALL" not in llm.last_instructions
+    assert "channel" not in storage.get_messages(cid)[-1].meta
+
+
+def test_name_heard_on_a_call_is_flagged_for_spelling_once(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    voice(engine, llm, cid, ex(full_name="Ana"))
+    c = voice(engine, llm, cid, ex(full_name="Ana García")).candidate
+    assert [f.code for f in c.flags] == ["name_by_voice"]
+
+
+def test_call_start_greets_and_repeats_the_pending_question(setup):
+    engine, llm, storage = setup
+    cid = engine.start_conversation().id
+    say(engine, llm, cid, ex(full_name="Ana García"))
+    r = engine.start_call(cid)
+    assert r.replies[0].meta["call_event"] == "start" and r.replies[0].meta["channel"] == "voice"
+    assert "switched from text chat to a voice call" in llm.last_instructions
+    assert "driving license" in llm.last_instructions  # the question still pending
+    # The opening + greeting are consecutive agent messages: merged into one assistant turn.
+    roles = [m["role"] for m in llm.last_history]
+    assert all(a != b for a, b in zip(roles, roles[1:])) and roles[-1] == "user"
+    assert r.candidate.stage == "license" and len(storage.get_messages(cid)) == 4
+
+
+def test_call_during_scheduling_reads_slots_out_instead_of_buttons(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    _reach_scheduling(engine, llm, cid)
+    r = engine.start_call(cid)
+    assert "reading them out" in llm.last_instructions and "tap" not in llm.last_instructions
+    assert r.replies[0].meta["quick_replies"]  # buttons stay visible in the chat window
+
+
+def test_call_fallback_greeting_when_llm_is_down(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    llm.fail_reply = True
+    assert engine.start_call(cid).replies[0].content.startswith("Hola, soy Sofía.")
+
+
+def test_no_call_after_screening_finished(setup):
+    from app.engine import CallNotAvailable
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    _disqualify_for_license(engine, llm, cid)
+    with pytest.raises(CallNotAvailable):
+        engine.start_call(cid)
 
 
 def test_empty_message_is_ignored(setup):

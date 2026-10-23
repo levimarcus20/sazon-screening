@@ -77,11 +77,17 @@
         {% if translate_error %}<p class="error-text small">{{ t('Translation unavailable right now, please try again.') }}</p>{% endif %}
         {% if show_translation %}<p class="muted small" style="margin:8px 0 0">{{ t('Machine translation shown under each message. The original messages are the source of truth.') }}</p>{% endif %}
         <div class="transcript">
+          {% set ns = namespace(voice=false) %}
           {% for m in messages %}
           {% set tr = m.meta.get('translations', {}).get(lang) if show_translation else none %}
+          {% set is_voice = m.meta.get('channel') == 'voice' %}
+          {% if is_voice != ns.voice or m.meta.get('call_event') == 'start' %}
+            <div class="channel-divider">{{ '📞 ' ~ t('Voice call') if is_voice else '💬 ' ~ t('Back to chat') }}</div>
+            {% set ns.voice = is_voice %}
+          {% endif %}
           <div class="msg {{ m.role }}">{{ m.content }}
             {%- if tr and tr.strip() != m.content.strip() %}<div class="translation">🌐 {{ tr }}</div>{% endif -%}
-            <time>{{ m.created_at | dt }}</time></div>
+            <time>{% if is_voice %}<span title="{{ t('Spoken on a voice call (speech-to-text transcript)') }}">📞</span> {% endif %}{{ m.created_at | dt }}</time></div>
           {% endfor %}
         </div>
       </section>

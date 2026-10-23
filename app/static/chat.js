@@ -1,4 +1,5 @@
 // Candidate chat: sends messages to the API and renders replies + the demo side panel.
+// Exposes window.Chat so voice.js can reuse the same rendering and API calls.
 (function () {
   const messagesEl = document.getElementById("messages");
   const typingEl = document.getElementById("typing");
@@ -20,31 +21,41 @@
 
   const timeNow = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  function addBubble(role, text, time) {
+  // voice: true marks a message spoken on a call (📞 next to the time)
+  function addBubble(role, text, time, voice) {
     const div = document.createElement("div");
     div.className = "bubble " + role;
     div.textContent = text;
     if (time) {
       const t = document.createElement("time");
-      t.textContent = time;
+      t.textContent = (voice ? "📞 " : "") + time;
       div.appendChild(t);
     }
     messagesEl.insertBefore(div, typingEl);
     scrollDown();
   }
 
+  function addNote(text, extraClass) {
+    const note = document.createElement("div");
+    note.className = "closed-note" + (extraClass ? " " + extraClass : "");
+    note.textContent = text;
+    messagesEl.insertBefore(note, typingEl);
+    scrollDown();
+  }
+
   function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
-  function setBusy(busy) {
+  function setBusy(busy, label) {
     typingEl.classList.toggle("show", busy);
-    presence.textContent = busy ? "escribiendo…" : "online";
+    presence.textContent = busy ? (label || "escribiendo…") : "online";
     input.disabled = busy;
     sendBtn.disabled = busy;
-    if (!busy) input.focus();
+    if (!busy && !form.hidden) input.focus();
     scrollDown();
   }
 
   function renderPanel(state) {
+    Chat.state = state;
     const status = document.getElementById("p-status");
     status.className = "badge " + state.status;
     status.textContent = STATUS_LABELS[state.status] || state.status;
@@ -85,11 +96,9 @@
     }
     document.getElementById("p-json").textContent = JSON.stringify(state, null, 2);
 
-    if (state.closed && !messagesEl.querySelector(".closed-note")) {
-      const note = document.createElement("div");
-      note.className = "closed-note";
-      note.textContent = "Screening finished";
-      messagesEl.insertBefore(note, typingEl);
+    if (state.closed) {
+      document.getElementById("call-btn").hidden = true;
+      if (!messagesEl.querySelector(".closed-note.finished")) addNote("Screening finished", "finished");
     }
   }
 
@@ -100,7 +109,7 @@
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = r.label;
-      btn.addEventListener("click", () => send(r.label, r.payload));
+      btn.addEventListener("click", () => Chat.onQuickReply(r.label, r.payload));
       container.appendChild(btn);
     });
   }
@@ -114,19 +123,33 @@
     scrollDown();
   }
 
-  async function send(text, payload) {
-    // Any new message makes older buttons stale.
+  function clearQuickReplies() {
     messagesEl.querySelectorAll(".quick-replies").forEach(el => el.remove());
+  }
+
+  async function postJSON(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || "Request failed");
+    return data;
+  }
+
+  // Sends one candidate turn. Returns the API response (replies + candidate state).
+  function postMessage(text, payload, channel) {
+    return postJSON(`/api/chat/${window.CANDIDATE_ID}/messages`,
+      { text, payload: payload || null, channel: channel || "chat" });
+  }
+
+  async function send(text, payload) {
+    clearQuickReplies();  // any new message makes older buttons stale
     addBubble("candidate", text, timeNow());
     setBusy(true);
     try {
-      const res = await fetch(`/api/chat/${window.CANDIDATE_ID}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, payload: payload || null }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || body.detail || "Request failed");
+      const body = await postMessage(text, payload);
       body.replies.forEach(r => {
         addBubble("agent", r.content, timeNow());
         addQuickReplies(r.quick_replies);
@@ -146,6 +169,13 @@
     input.value = "";
     send(text);
   });
+
+  const Chat = window.Chat = {
+    state: null,
+    timeNow, addBubble, addNote, addQuickReplies, clearQuickReplies, setBusy, renderPanel, postJSON, postMessage,
+    onQuickReply: send,  // voice.js swaps this during a call
+    sendTyped: send,
+  };
 
   // Buttons rendered by the server (page reloaded while slots were on offer)
   messagesEl.querySelectorAll(".quick-replies[data-replies]").forEach(el => {

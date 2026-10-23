@@ -6,21 +6,35 @@
     <div class="phone-head">
       <div class="avatar">S</div>
       <div class="who"><strong>Sofía · Grupo Sazón</strong><span id="presence">online</span></div>
+      <button type="button" class="call-btn" id="call-btn" aria-label="Llamar a Sofía" title="Llamar a Sofía"
+              {% if candidate.closed %}hidden{% endif %}>📞</button>
     </div>
     <div class="messages" id="messages">
       {% for m in messages %}
-      <div class="bubble {{ m.role }}">{{ m.content }}<time>{{ m.created_at.astimezone().strftime('%H:%M') }}</time></div>
+      <div class="bubble {{ m.role }}">{{ m.content }}<time>{% if m.meta.get('channel') == 'voice' %}📞 {% endif %}{{ m.created_at.astimezone().strftime('%H:%M') }}</time></div>
       {% if loop.last and m.role == 'agent' and not candidate.closed and m.meta.get('quick_replies') %}
       <div class="quick-replies" data-replies='{{ m.meta.quick_replies | tojson | forceescape }}'></div>
       {% endif %}
       {% endfor %}
-      {% if candidate.closed %}<div class="closed-note">Screening finished</div>{% endif %}
+      {% if candidate.closed %}<div class="closed-note finished">Screening finished</div>{% endif %}
       <div class="typing" id="typing"><i></i><i></i><i></i></div>
     </div>
     <form class="composer" id="composer" autocomplete="off">
       <input id="input" type="text" placeholder="Escribe un mensaje" maxlength="1000" autofocus>
       <button type="submit" id="send" aria-label="Send">➤</button>
     </form>
+    <div class="callbar" id="callbar" hidden>
+      <div class="call-state">
+        <span class="call-dot" id="call-dot"></span>
+        <div class="call-text">
+          <strong id="call-status"></strong>
+          <span id="call-interim"></span>
+        </div>
+      </div>
+      <button type="button" class="call-ctl lang" id="call-lang" title="Idioma del reconocimiento de voz / speech recognition language">ES</button>
+      <button type="button" class="call-ctl" id="call-mute" title="Silenciar micrófono / mute">🎙️</button>
+      <button type="button" class="call-ctl hangup" id="call-hangup" title="Colgar / hang up">📞</button>
+    </div>
   </section>
 
   <aside class="card panel">
@@ -48,4 +62,5 @@
   window.INITIAL_STATE = {{ candidate_snapshot(candidate) | tojson }};
 </script>
 <script src="/static/chat.js"></script>
+<script src="/static/voice.js"></script>
 {% endblock %}
