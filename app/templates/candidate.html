@@ -6,7 +6,6 @@
 {% set d = c.data %}
 <main class="page">
   <a class="back" href="/dashboard">{{ t('← All candidates') }}</a>
-  {% if request.query_params.get('saved') %}<div class="notice">{{ t('Saved.') }}</div>{% endif %}
   <div class="dash-head">
     <div>
       <h1>{{ d.full_name or t('Unnamed applicant') }}</h1>
@@ -69,7 +68,7 @@
           <h3>{{ t('Conversation') }}</h3>
           {% if show_translation %}
             <a class="btn small-btn" href="/dashboard/candidates/{{ c.id }}#conversation">{{ t('Hide translation') }}</a>
-          {% else %}
+          {% elif can_translate %}
             <form method="post" action="/dashboard/candidates/{{ c.id }}/translate" onsubmit="this.querySelector('button').disabled = true">
               <button class="btn small-btn" type="submit">🌐 {{ t('Translate conversation to Spanish') if lang == 'es' else t('Translate conversation to English') }}</button>
             </form>
@@ -89,8 +88,10 @@
     </div>
 
     <aside class="stack">
-      <section class="card">
+      <section class="card" id="activity">
         <h3>{{ t('Recruiter actions') }}</h3>
+        {% if request.query_params.get('saved') %}<div class="notice small" style="margin:12px 0 0">{{ t('Saved to the activity history below.') }}</div>{% endif %}
+        {% if request.query_params.get('nothing') %}<div class="notice warn small" style="margin:12px 0 0">{{ t('Nothing to save: change the pipeline stage or write a note.') }}</div>{% endif %}
         <form class="actions-form" method="post" action="/dashboard/candidates/{{ c.id }}/update">
           <label class="small muted" for="rs">{{ t('Pipeline stage') }}</label>
           <select id="rs" name="recruiter_status">
@@ -98,10 +99,25 @@
             <option value="{{ v }}" {% if c.recruiter_status == v %}selected{% endif %}>{{ t(v | capitalize) }}</option>
             {% endfor %}
           </select>
-          <label class="small muted" for="notes">{{ t('Notes') }}</label>
-          <textarea id="notes" name="recruiter_notes" rows="5" placeholder="{{ t('e.g. Called on Tuesday, very motivated…') }}">{{ c.recruiter_notes }}</textarea>
+          <label class="small muted" for="note">{{ t('Add a note') }}</label>
+          <textarea id="note" name="note" rows="3" placeholder="{{ t('e.g. Called on Tuesday, very motivated…') }}"></textarea>
           <button class="btn primary" type="submit">{{ t('Save') }}</button>
         </form>
+
+        <h3 style="margin-top:20px">{{ t('Activity') }}</h3>
+        <ol class="activity">
+          {% for e in c.activity | reverse %}
+          <li>
+            <div class="activity-meta">{{ e.at | dt }}</div>
+            {% if e.to_status %}
+              <div><span class="badge rs">{{ t(e.from_status | capitalize) }}</span> → <span class="badge rs">{{ t(e.to_status | capitalize) }}</span></div>
+            {% endif %}
+            {% if e.note %}<div class="activity-note">{{ e.note }}</div>{% endif %}
+          </li>
+          {% else %}
+          <li class="muted small">{{ t('No recruiter activity yet.') }}</li>
+          {% endfor %}
+        </ol>
       </section>
       <section class="card">
         <h3>{{ t('More') }}</h3>

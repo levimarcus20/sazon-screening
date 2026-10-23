@@ -131,6 +131,12 @@ ES.update({
     "Machine translation shown under each message. The original messages are the source of truth.":
         "Traducción automática bajo cada mensaje. Los mensajes originales son la fuente de verdad.",
     "Translation unavailable right now, please try again.": "Traducción no disponible ahora mismo, inténtalo de nuevo.",
+    "Add a note": "Añadir una nota",
+    "Activity": "Actividad",
+    "No recruiter activity yet.": "Aún no hay actividad del reclutador.",
+    "Saved to the activity history below.": "Guardado en el historial de actividad.",
+    "Nothing to save: change the pipeline stage or write a note.":
+        "Nada que guardar: cambia la etapa del proceso o escribe una nota.",
 })
 
 TRANSLATIONS = {"en": {}, "es": ES}
@@ -179,6 +185,16 @@ NOTES = {
                                  "es": "Volvió a cambiar su respuesta sobre {stage} tras una corrección: requiere revisión"},
     "text": {"en": "{text}", "es": "{text}"},
 }
+
+
+def conversation_languages(messages) -> set[str]:
+    """Languages the candidate wrote in, as detected by the extraction step on each message.
+
+    The agent always mirrors the candidate's language; its opening message is a fixed
+    bilingual template, so it doesn't count.
+    """
+    return {m.meta["extraction"]["language"] for m in messages
+            if m.role == "candidate" and m.meta.get("extraction", {}).get("language")}
 
 
 def code_name(code: str, lang: str) -> str:

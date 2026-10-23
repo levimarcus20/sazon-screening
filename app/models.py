@@ -103,6 +103,15 @@ class RecruiterSummary(BaseModel):
         return self.es if lang == "es" else self.en
 
 
+class RecruiterEvent(BaseModel):
+    """One recruiter action on a candidate: a pipeline change, a note, or both. Append-only."""
+
+    at: datetime = Field(default_factory=utcnow)
+    from_status: RecruiterStatus | None = None
+    to_status: RecruiterStatus | None = None   # None when only a note was added
+    note: str = ""
+
+
 class Candidate(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:12])
     created_at: datetime = Field(default_factory=utcnow)
@@ -134,7 +143,29 @@ class Candidate(BaseModel):
 
     # Recruiter-side tracking
     recruiter_status: RecruiterStatus = "new"
-    recruiter_notes: str = ""
+    activity: list[RecruiterEvent] = Field(default_factory=list)  # newest last
+
+    @model_validator(mode="before")
+    @classmethod
+    def _notes_to_activity(cls, value):
+        # Records saved before the activity log had a single overwritable notes field.
+        if isinstance(value, dict) and value.get("recruiter_notes") and not value.get("activity"):
+            value = {**value, "activity": [{"at": value.get("updated_at") or utcnow(),
+                                            "note": value["recruiter_notes"]}]}
+        return value
+
+    def record_recruiter_action(self, status: RecruiterStatus, note: str) -> RecruiterEvent | None:
+        """Apply a recruiter save. Returns the logged event, or None if nothing changed."""
+        note = note.strip()
+        changed = status != self.recruiter_status
+        if not changed and not note:
+            return None
+        event = RecruiterEvent(from_status=self.recruiter_status if changed else None,
+                               to_status=status if changed else None, note=note)
+        self.recruiter_status = status
+        self.activity.append(event)
+        self.updated_at = event.at
+        return event
 
     @property
     def first_name(self) -> str | None:
