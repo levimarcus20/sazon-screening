@@ -171,7 +171,7 @@ def post_message(candidate_id: str, body: IncomingMessage, background: Backgroun
             "error": "Something went wrong on our side. Please send your message again in a moment.",
         })
     if result.closed_now:
-        background.add_task(engine.generate_summary, candidate_id)
+        background.add_task(engine.generate_summary, candidate_id, only_if_closed=True)
     return {
         "replies": [{"content": m.content, "created_at": m.created_at.isoformat(),
                      "quick_replies": m.meta.get("quick_replies", [])} for m in result.replies],
@@ -254,13 +254,14 @@ def translate_conversation(request: Request, candidate_id: str):
 
 @app.post("/dashboard/candidates/{candidate_id}/update")
 def update_candidate(candidate_id: str, recruiter_status: RecruiterStatus = Form(...), recruiter_notes: str = Form("")):
-    candidate = storage.get_candidate(candidate_id)
-    if candidate is None:
-        raise HTTPException(404, "Candidate not found")
-    candidate.recruiter_status = recruiter_status
-    candidate.recruiter_notes = recruiter_notes.strip()
-    candidate.updated_at = utcnow()
-    storage.save_candidate(candidate)
+    with engine.candidate_lock(candidate_id):  # don't overwrite a chat turn happening right now
+        candidate = storage.get_candidate(candidate_id)
+        if candidate is None:
+            raise HTTPException(404, "Candidate not found")
+        candidate.recruiter_status = recruiter_status
+        candidate.recruiter_notes = recruiter_notes.strip()
+        candidate.updated_at = utcnow()
+        storage.save_candidate(candidate)
     return RedirectResponse(f"/dashboard/candidates/{candidate_id}?saved=1", status_code=303)
 
 

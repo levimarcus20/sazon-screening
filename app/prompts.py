@@ -173,10 +173,15 @@ ACTION_TEXT = {
         "We couldn't complete the screening automatically ({detail}). Tell them a recruiter will personally "
         "review their application and contact them. Thank them and close."
     ),
+    "confirm_knockout": (
+        "They seem to have said that {detail}. Before going on, make sure you understood correctly: ask the "
+        "license question again as a plain yes/no question (e.g. 'Just to make sure: do you have a valid driving "
+        "license for a car or motorbike?'). Don't say yet that it's a requirement or what happens next."
+    ),
     "post_close": (
         "The screening is already finished (outcome: {detail}). Reply briefly and kindly; answer any question "
-        "from the job facts. Don't ask screening questions. If they try to change an earlier answer, say a "
-        "recruiter will review it."
+        "from the job facts. Don't ask any questions and don't offer to do anything: the conversation is over. "
+        "If they mention a change to an earlier answer, say the recruiting team has noted it."
     ),
 }
 

@@ -171,6 +171,12 @@ NOTES = {
                           "es": "Un reclutador debe acordar la hora de la entrevista"},
     "changed_after_close": {"en": "After the screening ended, the candidate tried to change: {fields}",
                             "es": "Tras terminar la preselección, el candidato intentó cambiar: {fields}"},
+    "license_corrected": {"en": "Said they had no driving license, then corrected it to Yes after being disqualified",
+                          "es": "Dijo que no tenía carnet y, tras ser descartado, lo corrigió a Sí"},
+    "location_corrected": {"en": "First said they live in {old}, then corrected it to {new} after being disqualified",
+                           "es": "Primero dijo que vive en {old} y, tras ser descartado, lo corrigió a {new}"},
+    "repeated_knockout_change": {"en": "Changed their {stage} answer again after a correction: needs human review",
+                                 "es": "Volvió a cambiar su respuesta sobre {stage} tras una corrección: requiere revisión"},
     "text": {"en": "{text}", "es": "{text}"},
 }
 

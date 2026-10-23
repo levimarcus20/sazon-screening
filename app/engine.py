@@ -13,7 +13,9 @@ If an LLM call fails, the turn still completes: extraction falls back to "unclea
 """
 
 import logging
+import threading
 import unicodedata
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -67,6 +69,21 @@ class ScreeningEngine:
         self.config = config
         self.settings = settings
         self.clock = clock
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    @contextmanager
+    def candidate_lock(self, candidate_id: str):
+        """Serialize every read-modify-write of one candidate (chat turn, summary, recruiter edit).
+
+        Without it, a slow background summary could save a stale copy over a turn that
+        happened meanwhile. In-process only: running several app workers would need
+        DB-level locking (e.g. a version column with compare-and-swap) instead.
+        """
+        with self._locks_guard:
+            lock = self._locks.setdefault(candidate_id, threading.Lock())
+        with lock:
+            yield
 
     # ------------------------------------------------------------------ public
 
@@ -79,7 +96,14 @@ class ScreeningEngine:
         return candidate
 
     def handle_message(self, candidate_id: str, text: str, payload: str | None = None) -> TurnResult:
-        """`payload` comes from a tapped quick-reply button (e.g. "slot:2", "slot:none")."""
+        """`payload` comes from a tapped quick-reply button (e.g. "slot:2", "slot:none").
+
+        Turns for the same candidate run one at a time, in arrival order.
+        """
+        with self.candidate_lock(candidate_id):
+            return self._handle_message(candidate_id, text, payload)
+
+    def _handle_message(self, candidate_id: str, text: str, payload: str | None) -> TurnResult:
         c = self.storage.get_candidate(candidate_id)
         if c is None:
             raise CandidateNotFound(candidate_id)
@@ -102,7 +126,7 @@ class ScreeningEngine:
                                       known_city_id=c.data.city_id)
         # 3. DECIDE
         if c.closed:
-            plan = self._plan_after_close(c, extraction, results)
+            plan = self._plan_after_close(c, extraction, results, now)
         else:
             plan = self._advance(c, extraction, results, now)
         # 4. REPLY
@@ -138,7 +162,9 @@ class ScreeningEngine:
             m.meta.setdefault("translations", {})[lang] = text
             self.storage.update_message_meta(m.id, m.meta)
 
-    def generate_summary(self, candidate_id: str) -> RecruiterSummary | None:
+    def generate_summary(self, candidate_id: str, only_if_closed: bool = False) -> RecruiterSummary | None:
+        """Write the recruiter summary. The automatic end-of-screening run passes
+        only_if_closed=True; a recruiter can also request one at any time."""
         c = self.storage.get_candidate(candidate_id)
         if c is None:
             return None
@@ -148,9 +174,15 @@ class ScreeningEngine:
         except LLMError as e:
             log.warning("summary failed for %s, using fallback: %s", c.id, e)
             summary = fallback_summary(c)
-        c = self.storage.get_candidate(candidate_id) or c  # re-read: a turn may have happened meanwhile
-        c.summary = summary
-        self.storage.save_candidate(c)
+        # The LLM call above runs outside the lock; only the final write is serialized.
+        with self.candidate_lock(candidate_id):
+            c = self.storage.get_candidate(candidate_id)  # re-read: a turn may have happened meanwhile
+            if c is None:
+                return None
+            if only_if_closed and not c.closed:
+                return summary  # screening was reopened meanwhile; this summary describes a stale outcome
+            c.summary = summary
+            self.storage.save_candidate(c)
         return summary
 
     # ----------------------------------------------------------- state machine
@@ -222,13 +254,26 @@ class ScreeningEngine:
             plan.problems.append(ex.ambiguity)
 
         # Knockouts: decided here, in code
-        if c.data.license_status == "no":
-            return self._disqualify(c, Note(code="no_license"),
-                                    "a valid driving license (car or motorbike) is required for this role")
-        if c.data.license_status == "in_progress":
+        if c.data.license_status in ("no", "in_progress"):
+            if c.confirming != "license":
+                # A "no" ends the application, and yes/no answers are easy to misread
+                # (by the candidate or the extractor): ask once more before closing.
+                said = c.data.license_status
+                c.confirming, c.data.license_status, c.stage = "license", None, "license"
+                plan.accepted = [a for a in plan.accepted if not a.startswith("license_status")]
+                plan.action, plan.field = "confirm_knockout", "license"
+                plan.detail = ("they don't have a driving license" if said == "no"
+                               else "they're still getting their driving license")
+                return plan
+            c.confirming = None
+            if c.data.license_status == "no":
+                return self._disqualify(c, Note(code="no_license"),
+                                        "a valid driving license (car or motorbike) is required for this role")
             return self._disqualify(c, Note(code="license_pending"),
                                     "a valid driving license is required; they don't have it yet, and they're "
                                     "welcome to apply again once they do")
+        if c.data.license_status == "yes":
+            c.confirming = None
         if out_of_area is not None:
             place = out_of_area.extra.get("place") or "their area"
             country = out_of_area.extra.get("country")
@@ -317,10 +362,20 @@ class ScreeningEngine:
         plan.action = "scheduling_pending"
         return plan
 
-    def _plan_after_close(self, c: Candidate, ex: Extraction, results: list[FieldResult]) -> TurnPlan:
+    def _plan_after_close(self, c: Candidate, ex: Extraction, results: list[FieldResult], now: datetime) -> TurnPlan:
         if ex.intent == "delete_data":
             c.flags.append(Note(code="deletion_requested"))
             return TurnPlan(action="delete_data")
+
+        corrected = self._knockout_correction(c, results)
+        if corrected and c.knockout_corrections >= 1:
+            # Second flip on a knockout answer: don't let rules be tried by trial and error.
+            c.flags.append(Note(code="repeated_knockout_change", params={"stage": corrected}))
+            c.status = "needs_review"
+            return TurnPlan(action="needs_review", detail="they changed a key answer more than once")
+        if corrected:
+            return self._reopen(c, corrected, ex, results, now)
+
         changed = [r.field for r in results if r.ok and r.field != "slot_choice"]
         if changed:
             c.flags.append(Note(code="changed_after_close", params={"fields": ",".join(changed)}))
@@ -334,6 +389,39 @@ class ScreeningEngine:
         }.get(c.status, c.status)
         return TurnPlan(action="post_close", detail=outcome,
                         question=ex.candidate_question if ex.intent == "question" else "")
+
+    def _knockout_correction(self, c: Candidate, results: list[FieldResult]) -> str | None:
+        """Did a disqualified candidate just correct the answer that disqualified them?"""
+        if c.status != "disqualified" or c.disqualification_reason is None:
+            return None
+        code = c.disqualification_reason.code
+        for r in results:
+            if r.ok and r.field == "license_status" and r.value == "yes" and code in ("no_license", "license_pending"):
+                return "license"
+            if r.ok and r.field == "location" and code == "out_of_area":
+                return "location"
+        return None
+
+    def _reopen(self, c: Candidate, corrected: str, ex: Extraction, results: list[FieldResult],
+                now: datetime) -> TurnPlan:
+        """Resume a closed screening after a one-time knockout correction (flagged for the recruiter)."""
+        if corrected == "license":
+            c.flags.append(Note(code="license_corrected"))
+            c.data.license_status = None  # re-applied from this message by _advance
+        else:
+            new_city = next(r.value["city"] for r in results if r.field == "location" and r.ok)
+            old_place = c.disqualification_reason.params.get("place", "?")
+            c.flags.append(Note(code="location_corrected", params={"old": old_place, "new": new_city}))
+        c.knockout_corrections += 1
+        c.status, c.closed, c.confirming = "in_progress", False, None
+        c.disqualification_reason = None
+        c.summary = None  # written for the old outcome; regenerated when the screening ends again
+        plan = self._advance(c, ex, results, now)
+        plan.tone = " ".join(filter(None, [plan.tone, (
+            "They corrected an earlier answer that had ended their application. Say briefly and warmly that "
+            "you've updated it and their application continues. Don't mention any review."
+        )]))
+        return plan
 
     # ---------------------------------------------------------------- helpers
 
@@ -455,6 +543,7 @@ FALLBACK_ASK = {
 
 FALLBACK_ACTION = {
     "es": {
+        "confirm_knockout": "Solo para asegurarme: ¿tienes carnet de conducir vigente, de coche o de moto?",
         "offer_slots": "¡Cumples los requisitos! 🎉 ¿Qué hueco te va mejor para una videollamada de 15 minutos?\n{slots}",
         "offer_more_slots": "¡Sin problema! ¿Alguno de estos te va mejor?\n{slots}",
         "reoffer_slots": "¿Cuál de estos huecos te va mejor? Respóndeme con el número:\n{slots}",
@@ -467,6 +556,7 @@ FALLBACK_ACTION = {
         "post_close": "¡Gracias por tu mensaje! Un/a reclutador/a se pondrá en contacto contigo si hace falta.",
     },
     "en": {
+        "confirm_knockout": "Just to make sure: do you have a valid driving license for a car or motorbike?",
         "offer_slots": "You meet the requirements! 🎉 Which slot works best for a 15-minute video call?\n{slots}",
         "offer_more_slots": "No problem! Do any of these work better?\n{slots}",
         "reoffer_slots": "Which of these slots works best? Just reply with the number:\n{slots}",
