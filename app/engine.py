@@ -274,6 +274,15 @@ class ScreeningEngine:
         if ex.intent == "question" and ex.candidate_question:
             plan.question = ex.candidate_question
 
+        # Never end an application on a value the extractor itself wasn't sure about:
+        # drop that knockout answer and ask again (a clear "no" still ends it right away).
+        doubtful = [r for r in results if ex.ambiguity and r.ok and r.field == "license_status" and r.value != "yes"]
+        if doubtful:
+            log.info("license answer not trusted (extractor unsure): %s", ex.ambiguity)
+            results = [r for r in results if r not in doubtful]
+            plan.problems.append("it's not clear whether they have a valid license; ask simply whether they have "
+                                 "a valid license for a car or a motorbike (either one is enough)")
+
         # Apply validated values
         progressed = False
         out_of_area: FieldResult | None = None
@@ -292,7 +301,7 @@ class ScreeningEngine:
                 plan.problems.append(r.detail)
             if r.field == "location":
                 c.pending_place = r.extra.get("place") if r.error == "ambiguous_city" else None
-        if ex.ambiguity and not progressed and ex.intent == "answer":
+        if ex.ambiguity and not progressed and ex.intent == "answer" and not doubtful:
             plan.problems.append(ex.ambiguity)
 
         # Knockouts: decided here, in code

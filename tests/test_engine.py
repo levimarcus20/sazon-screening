@@ -168,6 +168,19 @@ def test_no_license_disqualifies_and_invites_correction(setup):
     assert "answered by mistake" in llm.last_instructions
 
 
+def test_unsure_license_extraction_is_asked_again_not_disqualified(setup):
+    """Regression: "de moto pero no de coche" was extracted as in_progress (with an ambiguity note) and disqualified."""
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    say(engine, llm, cid, ex(full_name="Juan Bernal"))
+    unsure = ex(license_status="in_progress", vehicle_type="motorcycle")
+    unsure.ambiguity = "Has a motorcycle license but not a car license; in_progress is uncertain"
+    c = say(engine, llm, cid, unsure).candidate
+    assert c.status == "in_progress" and not c.closed and c.stage == "license"
+    assert c.data.license_status is None and c.data.vehicle_type == "motorcycle"
+    assert "car or a motorbike (either one is enough)" in llm.last_instructions
+
+
 def _disqualify_for_license(engine, llm, cid):
     say(engine, llm, cid, ex(full_name="Pablo García"))
     return say(engine, llm, cid, ex(license_status="no")).candidate

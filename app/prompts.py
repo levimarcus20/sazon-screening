@@ -21,7 +21,10 @@ Candidates may volunteer several fields at once, correct an earlier answer, or m
 
 Field formats (value is always a string):
 - full_name: the person's name as written, e.g. "María López García". Merge with a partial name already known if they add their surname.
-- license_status: "yes" (has a valid driving license for car or motorbike), "no", or "in_progress" (learning, exam pending, license suspended/expired).
+- license_status: "yes" if they have a valid license for AT LEAST ONE of car or motorbike: a motorbike-only \
+license is "yes" (e.g. "de moto pero no de coche" -> yes, with vehicle_type "motorcycle"). "no" only if they have \
+no valid license for either. "in_progress" only if they have none yet but are getting one (learning, exam pending) \
+or theirs is suspended/expired.
 - vehicle_type: "car", "motorcycle" (includes moped/scooter/moto), "both", "bicycle", or "other".
 - city: the standard name of the city they live in (e.g. "Barna" -> "Barcelona", "CDMX"/"DF" -> "Ciudad de México", "Seville" -> "Sevilla"). Only output a real, recognizable place. If they only name a neighbourhood or municipality you recognize, output that as city too (e.g. "Zapopan").
 - country: "ES", "MX" or "OTHER" - only if stated or unambiguous from the city (Guadalajara exists in both ES and MX: leave country out unless they say).

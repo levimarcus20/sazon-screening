@@ -53,18 +53,28 @@
   let voices = synth.getVoices();
   synth.onvoiceschanged = () => { voices = synth.getVoices(); };
 
-  // Best available voice for the locale: neural ("Natural" in Edge) > Google > any; female names preferred.
-  const FEMALE = /elvira|dalia|helena|laura|sabina|paloma|ximena|lucia|sofia|jenny|aria|zira|monica|paulina|samantha/i;
+  // Sofía needs a female voice. Browsers don't expose a voice's gender, so we go by
+  // the names of the common Windows/Edge/Chrome/macOS voices (Google's voices are female
+  // unless named "Male"). Ranking: female > right accent > neural ("Natural" in Edge) > Google.
+  const FEMALE = new RegExp("\\b(female|elvira|dalia|helena|laura|sabina|paloma|ximena|lucia|sofia|irene|elena|" +
+    "abril|estrella|triana|vera|beatriz|candela|larissa|marina|nuria|renata|yolanda|monica|paulina|marisol|" +
+    "jenny|aria|ava|emma|michelle|zira|samantha|susan|hazel|libby|sonia|google)\\b", "i");
+  const MALE = new RegExp("\\b(male|pablo|alvaro|jorge|raul|gonzalo|gerardo|liberto|carlos|diego|arnau|dario|" +
+    "elias|saul|teo|cecilio|luciano|yago|pelayo|juan|david|mark|guy|andrew|brian|christopher|eric|roger|" +
+    "ryan|thomas|george|james|daniel)\\b", "i");
   function pickVoice(tag) {
     const want = tag.toLowerCase();
-    let best = null, bestScore = -1;
+    let best = null, bestScore = -Infinity;
     for (const v of voices) {
       const vl = v.lang.toLowerCase().replace("_", "-");
       if (!vl.startsWith(want.slice(0, 2))) continue;
-      const score = (vl === want ? 8 : 0) + (/natural|neural/i.test(v.name) ? 4 : 0)
-        + (/google/i.test(v.name) ? 2 : 0) + (FEMALE.test(v.name) ? 1 : 0);
+      const male = MALE.test(v.name) && !/female/i.test(v.name);
+      const score = (male ? -20 : FEMALE.test(v.name) ? 20 : 0) + (vl === want ? 8 : 0)
+        + (/natural|neural/i.test(v.name) ? 4 : 0) + (/google/i.test(v.name) ? 2 : 0);
       if (score > bestScore) { best = v; bestScore = score; }
     }
+    if (best && best !== pickVoice.last) console.info("Sofía's voice:", best.name, best.lang);
+    pickVoice.last = best;
     return best;
   }
 
