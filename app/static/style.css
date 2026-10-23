@@ -112,6 +112,47 @@ tbody tr:last-child td { border-bottom: 0; }
 .notice { padding: 8px 12px; background: var(--ok-bg); color: var(--ok); border-radius: 8px; margin-bottom: 14px; }
 .back { text-decoration: none; color: var(--muted); display: inline-block; margin-bottom: 12px; }
 
+/* ---------- analytics ---------- */
+.notice.info { background: var(--info-bg); color: var(--info); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; }
+.kpi span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.kpi strong { font-size: 28px; letter-spacing: -.02em; }
+.kpi small { color: var(--muted); font-size: 12px; }
+.analytics-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 960px) { .analytics-grid { grid-template-columns: 1fr; } }
+.analytics-grid .stack { display: flex; flex-direction: column; gap: 20px; }
+.analytics-grid h2 { margin-bottom: 4px; }
+.metric-table { margin-top: 10px; }
+.metric-table tbody tr { cursor: default; }
+.metric-table td { padding: 8px 10px; }
+.metric-table th { padding: 8px 10px; }
+.metric-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.metric-table tr.hot td { background: var(--warn-bg); }
+.metric-table tr.hot td:first-child { font-weight: 700; color: var(--warn); }
+.bar { position: relative; height: 20px; min-width: 120px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: #c7d7fe; }
+.bar b { position: relative; font-size: 12px; font-weight: 600; padding-left: 6px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.stacked { display: flex; height: 16px; border-radius: 4px; overflow: hidden; margin: 12px 0; }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.legend li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.legend li span { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend.inline { flex-direction: row; gap: 16px; margin-top: 8px; }
+.o-qualified_booked { background: var(--ok); }
+.o-qualified_manual { background: #75e0a7; }
+.o-disqualified { background: #f97066; }
+.o-needs_review { background: #fdb022; }
+.o-withdrawn { background: #98a2b3; }
+.o-abandoned { background: #d0d5dd; }
+.daily { display: flex; align-items: flex-end; gap: 2px; height: 140px; margin-top: 14px; border-bottom: 1px solid var(--border); }
+.daily .day { flex: 1; height: 100%; position: relative; }
+.daily .day i { position: absolute; bottom: 0; left: 0; right: 0; border-radius: 2px 2px 0 0; }
+.daily i.started, .legend i.started { background: #c7d7fe; }
+.daily i.finished, .legend i.finished { background: var(--info); }
+.daily-axis { display: flex; justify-content: space-between; margin-top: 4px; }
+.footnote { margin-top: 16px; }
+
 /* ---------- chat (WhatsApp-style) ---------- */
 .chat-layout { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 24px; max-width: 1100px; margin: 24px auto; padding: 0 24px; align-items: start; }
 @media (max-width: 900px) { .chat-layout { grid-template-columns: 1fr; } }

@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 from pydantic import BaseModel
 
+from .analytics import demo_records, record_from_conversation, summarize
 from .client_config import get_client_config
 from .engine import CallNotAvailable, CandidateNotFound, ScreeningEngine, TurnResult
 from .i18n import (
@@ -104,8 +105,22 @@ def stage_label(ctx, value: str) -> str:
     return code_name(value, ctx["lang"])
 
 
+def pct(value: float | None) -> str:
+    return "—" if value is None else f"{value * 100:.0f}%"
+
+
+def mins(value: float | None) -> str:
+    """Minutes as '4.8 min' or '1 h 25 min'."""
+    if value is None:
+        return "—"
+    if value < 60:
+        return f"{value:.1f} min"
+    hours, minutes = divmod(round(value), 60)
+    return f"{hours} h {minutes} min"
+
+
 templates.env.filters.update(dt=fmt_dt, day=fmt_day, label=label, status_label=status_label, slot=slot,
-                             note=note, stage_label=stage_label)
+                             note=note, stage_label=stage_label, pct=pct, mins=mins)
 templates.env.globals.update(display_status=display_status, config=config, t=t)
 
 
@@ -244,6 +259,33 @@ def dashboard(request: Request, status: str = "", country: str = "", city: str =
         "rows": rows, "counts": counts, "total": len(everyone),
         "filters": {"status": status, "country": country, "city": city, "availability": availability,
                     "schedule": schedule, "recruiter_status": recruiter_status, "q": q},
+    })
+
+
+OUTCOME_NAMES = {
+    "qualified_booked": "Qualified, interview booked", "qualified_manual": "Qualified, recruiter schedules",
+    "disqualified": "Disqualified", "needs_review": "Needs review", "withdrawn": "Withdrawn",
+    "abandoned": "Stopped replying",
+}
+
+
+@app.get("/analytics", response_class=HTMLResponse)
+def analytics(request: Request, source: str = "demo", days: int = 30, country: str = ""):
+    """Conversation metrics, aggregated only: completion rate, drop-off stage, duration."""
+    days = days if days in (7, 30, 90) else 30
+    now = utcnow().replace(minute=0, second=0, microsecond=0)  # demo sample stays stable within the hour
+    candidates = storage.list_candidates()
+    if source == "live":
+        records = [record_from_conversation(c, storage.get_messages(c.id)) for c in candidates]
+    else:
+        source, records = "demo", demo_records(now)
+    if country in ("ES", "MX"):
+        records = [r for r in records if r.country == country]
+    stats = summarize(records, now, timedelta(hours=settings.inactive_after_hours), days)
+    return templates.TemplateResponse(request, "analytics.html", {
+        "s": stats, "live_total": len(candidates), "outcome_names": OUTCOME_NAMES,
+        "inactive_hours": f"{settings.inactive_after_hours:g}",
+        "filters": {"source": source, "days": days, "country": country},
     })
 
 

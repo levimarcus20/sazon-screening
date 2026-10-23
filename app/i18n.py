@@ -14,7 +14,7 @@ ES = {
     # navigation
     "Grupo Sazón · Hiring": "Grupo Sazón · Contratación",
     "Candidates": "Candidatos",
-    "New applicant (demo)": "Nuevo candidato (demo)",
+    "New applicant": "Nuevo candidato",
     # landing
     "Delivery driver screening": "Selección de repartidores",
     "Sofía screens every applicant over chat, any time of day, and recruiters only spend time on qualified candidates.":
@@ -140,6 +140,62 @@ ES.update({
     "Voice call": "Llamada de voz",
     "Back to chat": "De vuelta al chat",
     "Spoken on a voice call (speech-to-text transcript)": "Dicho en una llamada de voz (transcripción automática)",
+})
+
+ES.update({  # analytics
+    "Screening Analytics": "Métricas de preselección",
+    "How candidates move through the screening conversation with Sofía.":
+        "Cómo avanzan los candidatos en la conversación de preselección con Sofía.",
+    "Conversations": "Conversaciones",
+    "Simulated data": "Datos simulados",
+    "Live data": "Datos reales",
+    "Last": "Últimos",
+    "days": "días",
+    "Simulated screenings generated only for this view. They are not real applicants and never appear in the candidate list.":
+        "Preselecciones simuladas generadas solo para esta vista. No son candidatos reales y nunca aparecen en la lista de candidatos.",
+    "No finished or abandoned conversations in this period yet.":
+        "Aún no hay conversaciones terminadas o abandonadas en este periodo.",
+    "Screenings started": "Preselecciones iniciadas",
+    "still in progress": "aún en curso",
+    "Completion rate": "Tasa de finalización",
+    "of": "de",
+    "reached an outcome": "llegaron a un resultado",
+    "Reached an outcome": "Llegaron a un resultado",
+    "Drop-off rate": "Tasa de abandono",
+    "Most at:": "Sobre todo en:",
+    "Median duration": "Duración mediana",
+    "Average": "Media",
+    "90% within": "90% en menos de",
+    "booked their interview in the chat": "reservaron su entrevista en el chat",
+    "Drop-off by stage": "Abandono por etapa",
+    "Where candidates stopped replying. Reached = share of candidates who got to that question.":
+        "Dónde dejaron de responder los candidatos. Llegaron = porcentaje de candidatos que llegaron a esa pregunta.",
+    "Stage": "Etapa",
+    "Reached": "Llegaron",
+    "Stopped here": "Abandonaron aquí",
+    "Drop-off": "Abandono",
+    "Outcomes": "Resultados",
+    "Qualified, interview booked": "Apto, entrevista reservada",
+    "Qualified, recruiter schedules": "Apto, agenda un reclutador",
+    "Stopped replying": "Dejó de responder",
+    "Duration by outcome": "Duración por resultado",
+    "From Sofía's first message to the outcome.": "Desde el primer mensaje de Sofía hasta el resultado.",
+    "Outcome": "Resultado",
+    "Count": "Cantidad",
+    "Median": "Mediana",
+    "Completion by segment": "Finalización por segmento",
+    "Segment": "Segmento",
+    "Spanish": "Español",
+    "English": "Inglés",
+    "Chat only": "Solo chat",
+    "Used voice": "Usó la voz",
+    "Screenings per day": "Preselecciones por día",
+    "started": "iniciadas",
+    "Started": "Iniciadas",
+    "Rates count concluded conversations only: finished, or no reply for":
+        "Las tasas solo cuentan conversaciones concluidas: terminadas, o sin respuesta durante",
+    "conversations with a recent reply are left out until they finish or go quiet.":
+        "conversaciones con una respuesta reciente quedan fuera hasta que terminen o se queden sin respuesta.",
 })
 
 TRANSLATIONS = {"en": {}, "es": ES}
