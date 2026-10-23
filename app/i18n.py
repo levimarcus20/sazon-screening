@@ -143,7 +143,7 @@ ES.update({
 })
 
 ES.update({  # analytics
-    "Analytics": "Analítica",
+    "Screening Analytics": "Métricas de preselección",
     "How candidates move through the screening conversation with Sofía.":
         "Cómo avanzan los candidatos en la conversación de preselección con Sofía.",
     "Conversations": "Conversaciones",
