@@ -10,6 +10,10 @@ Each turn runs four steps:
 The LLM never decides whether a candidate qualifies; steps 2-3 are plain code.
 If an LLM call fails, the turn still completes: extraction falls back to "unclear"
 (the question is re-asked) and the reply falls back to a template.
+
+Channels: a turn arrives as typed chat or as a voice-call transcript (speech-to-text
+in the browser). Both go through the same four steps; voice only changes how the
+message is interpreted (STT errors) and phrased (spoken, no lists or emojis).
 """
 
 import logging
@@ -27,7 +31,7 @@ from .models import (
     SummaryContent, utcnow,
 )
 from .prompts import (
-    FIELD_ASKS, TurnPlan, build_extraction_input, build_summary_input, opening_message,
+    CALL_START, FIELD_ASKS, TurnPlan, build_extraction_input, build_summary_input, opening_message,
     render_turn_instructions,
 )
 from .scheduling import available_slots, format_slot
@@ -53,6 +57,10 @@ FIELD_TO_STAGE = {
 
 class CandidateNotFound(Exception):
     pass
+
+
+class CallNotAvailable(Exception):
+    """A voice call was requested for a screening that has already finished."""
 
 
 @dataclass
@@ -95,15 +103,42 @@ class ScreeningEngine:
                                          content=opening_message(self.config), created_at=self.clock()))
         return candidate
 
-    def handle_message(self, candidate_id: str, text: str, payload: str | None = None) -> TurnResult:
+    def handle_message(self, candidate_id: str, text: str, payload: str | None = None,
+                       channel: str = "chat") -> TurnResult:
         """`payload` comes from a tapped quick-reply button (e.g. "slot:2", "slot:none").
+        `channel` is "voice" when `text` is a speech-to-text transcript from a call.
 
         Turns for the same candidate run one at a time, in arrival order.
         """
         with self.candidate_lock(candidate_id):
-            return self._handle_message(candidate_id, text, payload)
+            return self._handle_message(candidate_id, text, payload, channel)
 
-    def _handle_message(self, candidate_id: str, text: str, payload: str | None) -> TurnResult:
+    def start_call(self, candidate_id: str) -> TurnResult:
+        """The candidate switched to a voice call: Sofía greets them and repeats the pending question."""
+        with self.candidate_lock(candidate_id):
+            c = self.storage.get_candidate(candidate_id)
+            if c is None:
+                raise CandidateNotFound(candidate_id)
+            if c.closed:
+                raise CallNotAvailable(candidate_id)
+            stage = self.next_stage(c)
+            if stage == "scheduling" and c.offered_slots:
+                plan = self._slot_plan(TurnPlan(action="ask"), "reoffer_slots", c, c.language)
+            else:
+                plan = self._ask_plan(c, stage, TurnPlan(action="ask"))
+            plan.channel, plan.tone = "voice", CALL_START
+            text = self._reply(c, self.storage.get_messages(c.id), plan,
+                               event="[The candidate started a voice call.]")
+            msg = Message(candidate_id=c.id, role="agent", content=text, created_at=self.clock(),
+                          meta={"plan": asdict(plan), "channel": "voice", "call_event": "start"})
+            if plan.action in SLOT_ACTIONS:
+                msg.meta["quick_replies"] = self._slot_buttons(c)
+            self.storage.add_message(msg)
+            c.updated_at = self.clock()
+            self.storage.save_candidate(c)
+            return TurnResult(c, [msg], closed_now=False)
+
+    def _handle_message(self, candidate_id: str, text: str, payload: str | None, channel: str) -> TurnResult:
         c = self.storage.get_candidate(candidate_id)
         if c is None:
             raise CandidateNotFound(candidate_id)
@@ -119,7 +154,8 @@ class ScreeningEngine:
         was_closed = c.closed
 
         # 1. EXTRACT (a tapped button needs no interpretation: skip the LLM)
-        extraction = self._extraction_from_payload(c, payload, text) or self._extract(c, history, text, today)
+        extraction = (self._extraction_from_payload(c, payload, text)
+                      or self._extract(c, history, text, today, channel))
         c.language = extraction.language
         # 2. VALIDATE
         results = validate_extraction(extraction, self.config, today, pending_place=c.pending_place,
@@ -129,6 +165,10 @@ class ScreeningEngine:
             plan = self._plan_after_close(c, extraction, results, now)
         else:
             plan = self._advance(c, extraction, results, now)
+        plan.channel = channel
+        if channel == "voice" and any(r.ok and r.field == "full_name" for r in results) \
+                and not any(f.code == "name_by_voice" for f in c.flags):
+            c.flags.append(Note(code="name_by_voice"))  # speech-to-text may have misspelled it
         # 4. REPLY
         reply_text = self._reply(c, history + [incoming], plan)
 
@@ -141,6 +181,8 @@ class ScreeningEngine:
             incoming.meta["payload"] = payload
         agent_msg = Message(candidate_id=c.id, role="agent", content=reply_text,
                             created_at=self.clock(), meta={"plan": asdict(plan)})
+        if channel == "voice":
+            incoming.meta["channel"] = agent_msg.meta["channel"] = "voice"
         if plan.action in SLOT_ACTIONS:
             agent_msg.meta["quick_replies"] = self._slot_buttons(c)
         self.storage.add_message(incoming)
@@ -294,9 +336,12 @@ class ScreeningEngine:
         if stage_now == "scheduling":
             return self._schedule(c, results, plan, now, entering=stage_before != "scheduling")
 
-        c.stage = stage_now
-        plan.field = stage_now
-        if stage_now == "experience" and (c.data.experience_years or 0) > 0 and not c.data.experience_platforms:
+        return self._ask_plan(c, stage_now, plan)
+
+    def _ask_plan(self, c: Candidate, stage: str, plan: TurnPlan) -> TurnPlan:
+        c.stage = stage
+        plan.field = stage
+        if stage == "experience" and (c.data.experience_years or 0) > 0 and not c.data.experience_platforms:
             plan.field = "experience_platforms"
         return plan
 
@@ -467,24 +512,35 @@ class ScreeningEngine:
         return Extraction(language=c.language, intent="answer", candidate_question="", ambiguity="",
                           updates=[FieldUpdate(field="slot_choice", value=choice, evidence=text)])
 
-    def _extract(self, c: Candidate, history: list[Message], text: str, today: date) -> Extraction:
+    def _extract(self, c: Candidate, history: list[Message], text: str, today: date,
+                 channel: str = "chat") -> Extraction:
         current = self.next_stage(c) if not c.closed else "nothing (screening finished)"
         if current == "scheduling":
             current = "choosing an interview slot"
         else:
             current = FIELD_ASKS.get(current, current)
         slot_labels = [format_slot(s, c.language) for s in c.offered_slots] if c.stage == "scheduling" else []
-        user_input = build_extraction_input(c, history[-RECENT_MESSAGES_FOR_EXTRACTION:], text, current, slot_labels)
+        user_input = build_extraction_input(c, history[-RECENT_MESSAGES_FOR_EXTRACTION:], text, current,
+                                            slot_labels, channel)
         try:
             return self.llm.extract(user_input, today)
         except LLMError as e:
             log.warning("extraction failed for %s: %s", c.id, e)
             return Extraction(language=c.language, intent="unclear", candidate_question="", updates=[], ambiguity="")
 
-    def _reply(self, c: Candidate, history: list[Message], plan: TurnPlan) -> str:
+    def _reply(self, c: Candidate, history: list[Message], plan: TurnPlan, event: str | None = None) -> str:
+        """`event` is a non-message happening to react to (e.g. a call starting), shown as a user turn."""
         instructions = render_turn_instructions(plan, c, self.config)
-        api_history = [{"role": "user", "content": "[The candidate applied for the delivery driver job. Conversation starts.]"}]
-        api_history += [{"role": "assistant" if m.role == "agent" else "user", "content": m.content} for m in history]
+        turns = [("user", "[The candidate applied for the delivery driver job. Conversation starts.]")]
+        turns += [("assistant" if m.role == "agent" else "user", m.content) for m in history]
+        if event:
+            turns.append(("user", event))
+        api_history: list[dict] = []
+        for role, content in turns:  # two agent messages in a row (e.g. a call greeting) become one turn
+            if api_history and api_history[-1]["role"] == role:
+                api_history[-1]["content"] += "\n\n" + content
+            else:
+                api_history.append({"role": role, "content": content})
         try:
             return self.llm.reply(api_history, instructions)
         except LLMError as e:
@@ -562,12 +618,17 @@ FALLBACK_ACTION = {
 def fallback_reply(plan: TurnPlan, c: Candidate) -> str:
     lang = c.language
     if plan.action == "ask":
-        return FALLBACK_ASK[lang].get(plan.field or "", FALLBACK_ASK[lang]["full_name"])
-    slots = "\n".join(f"{i}) {s}" for i, s in enumerate(plan.slots, 1))
-    text = FALLBACK_ACTION[lang][plan.action].format(slots=slots, detail=plan.detail)
+        text = FALLBACK_ASK[lang].get(plan.field or "", FALLBACK_ASK[lang]["full_name"])
+    else:
+        slots = "\n".join(f"{i}) {s}" for i, s in enumerate(plan.slots, 1))
+        text = FALLBACK_ACTION[lang][plan.action].format(slots=slots, detail=plan.detail)
     if plan.allow_correction:
         text += (" Si te has equivocado al responder, escríbeme y seguimos." if lang == "es"
                  else " If you answered by mistake, just reply and we'll continue.")
+    if plan.tone == CALL_START:
+        name = f" {c.first_name}" if c.first_name else ""
+        text = (f"Hola{name}, soy Sofía. Seguimos donde lo dejamos. " if lang == "es"
+                else f"Hi{name}, it's Sofía. Let's continue where we left off. ") + text
     return text
 
 

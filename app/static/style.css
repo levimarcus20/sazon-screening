@@ -141,6 +141,26 @@ tbody tr:last-child td { border-bottom: 0; }
 .composer input { flex: 1; border: 0; border-radius: 20px; padding: 10px 14px; font-size: 14.5px; }
 .composer button { width: 42px; height: 42px; border-radius: 50%; border: 0; background: #00a884; color: #fff; font-size: 18px; cursor: pointer; }
 .composer button:disabled { opacity: .5; cursor: default; }
+.composer[hidden], .callbar[hidden], .call-btn[hidden] { display: none; }
+
+/* ---------- voice call ---------- */
+.call-btn { margin-left: auto; width: 38px; height: 38px; border-radius: 50%; border: 0; background: rgba(255,255,255,.14); color: #fff; font-size: 17px; cursor: pointer; }
+.call-btn:hover { background: rgba(255,255,255,.26); }
+.callbar { display: flex; align-items: center; gap: 8px; padding: 10px; background: #f0f2f5; border-top: 1px solid #dfe3e6; }
+.call-state { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.call-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: #9aa5ae; }
+.call-dot.listening { background: #00a884; animation: pulse 1.2s infinite; }
+.call-dot.speaking { background: var(--brand); animation: pulse 1.2s infinite; }
+.call-dot.thinking, .call-dot.connecting { background: #f5a524; animation: blink 1.2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0,168,132,.45); } 70% { box-shadow: 0 0 0 9px rgba(0,168,132,0); } 100% { box-shadow: 0 0 0 0 rgba(0,168,132,0); } }
+.call-text { display: flex; flex-direction: column; min-width: 0; }
+.call-text strong { font-size: 13.5px; }
+.call-text span { font-size: 12.5px; color: #54656f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
+.call-ctl { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; background: #fff; font-size: 17px; cursor: pointer; box-shadow: 0 1px .5px rgba(0,0,0,.13); }
+.call-ctl.lang { font-size: 12px; font-weight: 700; color: #54656f; }
+.call-ctl.on { background: #fee4e2; }
+.call-ctl.hangup { background: #e5484d; transform: rotate(135deg); }
+.channel-divider { align-self: center; font-size: 12px; color: var(--muted); background: rgba(255,255,255,.75); padding: 3px 10px; border-radius: 6px; }
 
 .panel h2 { margin-bottom: 4px; }
 .panel .kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; margin-top: 14px; }
