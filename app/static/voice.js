@@ -54,11 +54,12 @@
   synth.onvoiceschanged = () => { voices = synth.getVoices(); };
 
   // Sofía needs a female voice. Browsers don't expose a voice's gender, so we go by
-  // the names of the common Windows/Edge/Chrome/macOS voices (Google's voices are female
-  // unless named "Male"). Ranking: female > right accent > neural ("Natural" in Edge) > Google.
+  // the names of the common Windows/Edge/macOS voices. Chrome's "Google español" is a male
+  // voice, so unnamed Google voices count as unknown. Ranking: female > right accent >
+  // neural ("Natural" in Edge) > Google.
   const FEMALE = new RegExp("\\b(female|elvira|dalia|helena|laura|sabina|paloma|ximena|lucia|sofia|irene|elena|" +
     "abril|estrella|triana|vera|beatriz|candela|larissa|marina|nuria|renata|yolanda|monica|paulina|marisol|" +
-    "jenny|aria|ava|emma|michelle|zira|samantha|susan|hazel|libby|sonia|google)\\b", "i");
+    "jenny|aria|ava|emma|michelle|zira|samantha|susan|hazel|libby|sonia)\\b", "i");
   const MALE = new RegExp("\\b(male|pablo|alvaro|jorge|raul|gonzalo|gerardo|liberto|carlos|diego|arnau|dario|" +
     "elias|saul|teo|cecilio|luciano|yago|pelayo|juan|david|mark|guy|andrew|brian|christopher|eric|roger|" +
     "ryan|thomas|george|james|daniel)\\b", "i");
