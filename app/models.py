@@ -122,6 +122,7 @@ class Candidate(BaseModel):
     disqualification_reason: Note | None = None
     abusive_count: int = 0
     pending_place: str | None = None  # ambiguous place waiting for the country (e.g. Guadalajara)
+    knockout_corrections: int = 0     # times a disqualified candidate corrected a knockout answer
 
     # Interview scheduling
     offered_slots: list[datetime] = Field(default_factory=list)

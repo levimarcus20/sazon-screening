@@ -13,7 +13,9 @@ If an LLM call fails, the turn still completes: extraction falls back to "unclea
 """
 
 import logging
+import threading
 import unicodedata
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -67,6 +69,21 @@ class ScreeningEngine:
         self.config = config
         self.settings = settings
         self.clock = clock
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    @contextmanager
+    def candidate_lock(self, candidate_id: str):
+        """Serialize every read-modify-write of one candidate (chat turn, summary, recruiter edit).
+
+        Without it, a slow background summary could save a stale copy over a turn that
+        happened meanwhile. In-process only: running several app workers would need
+        DB-level locking (e.g. a version column with compare-and-swap) instead.
+        """
+        with self._locks_guard:
+            lock = self._locks.setdefault(candidate_id, threading.Lock())
+        with lock:
+            yield
 
     # ------------------------------------------------------------------ public
 
@@ -79,7 +96,14 @@ class ScreeningEngine:
         return candidate
 
     def handle_message(self, candidate_id: str, text: str, payload: str | None = None) -> TurnResult:
-        """`payload` comes from a tapped quick-reply button (e.g. "slot:2", "slot:none")."""
+        """`payload` comes from a tapped quick-reply button (e.g. "slot:2", "slot:none").
+
+        Turns for the same candidate run one at a time, in arrival order.
+        """
+        with self.candidate_lock(candidate_id):
+            return self._handle_message(candidate_id, text, payload)
+
+    def _handle_message(self, candidate_id: str, text: str, payload: str | None) -> TurnResult:
         c = self.storage.get_candidate(candidate_id)
         if c is None:
             raise CandidateNotFound(candidate_id)
@@ -102,7 +126,7 @@ class ScreeningEngine:
                                       known_city_id=c.data.city_id)
         # 3. DECIDE
         if c.closed:
-            plan = self._plan_after_close(c, extraction, results)
+            plan = self._plan_after_close(c, extraction, results, now)
         else:
             plan = self._advance(c, extraction, results, now)
         # 4. REPLY
@@ -138,7 +162,9 @@ class ScreeningEngine:
             m.meta.setdefault("translations", {})[lang] = text
             self.storage.update_message_meta(m.id, m.meta)
 
-    def generate_summary(self, candidate_id: str) -> RecruiterSummary | None:
+    def generate_summary(self, candidate_id: str, only_if_closed: bool = False) -> RecruiterSummary | None:
+        """Write the recruiter summary. The automatic end-of-screening run passes
+        only_if_closed=True; a recruiter can also request one at any time."""
         c = self.storage.get_candidate(candidate_id)
         if c is None:
             return None
@@ -148,9 +174,15 @@ class ScreeningEngine:
         except LLMError as e:
             log.warning("summary failed for %s, using fallback: %s", c.id, e)
             summary = fallback_summary(c)
-        c = self.storage.get_candidate(candidate_id) or c  # re-read: a turn may have happened meanwhile
-        c.summary = summary
-        self.storage.save_candidate(c)
+        # The LLM call above runs outside the lock; only the final write is serialized.
+        with self.candidate_lock(candidate_id):
+            c = self.storage.get_candidate(candidate_id)  # re-read: a turn may have happened meanwhile
+            if c is None:
+                return None
+            if only_if_closed and not c.closed:
+                return summary  # screening was reopened meanwhile; this summary describes a stale outcome
+            c.summary = summary
+            self.storage.save_candidate(c)
         return summary
 
     # ----------------------------------------------------------- state machine
@@ -317,10 +349,20 @@ class ScreeningEngine:
         plan.action = "scheduling_pending"
         return plan
 
-    def _plan_after_close(self, c: Candidate, ex: Extraction, results: list[FieldResult]) -> TurnPlan:
+    def _plan_after_close(self, c: Candidate, ex: Extraction, results: list[FieldResult], now: datetime) -> TurnPlan:
         if ex.intent == "delete_data":
             c.flags.append(Note(code="deletion_requested"))
             return TurnPlan(action="delete_data")
+
+        corrected = self._knockout_correction(c, results)
+        if corrected and c.knockout_corrections >= 1:
+            # Second flip on a knockout answer: don't let rules be tried by trial and error.
+            c.flags.append(Note(code="repeated_knockout_change", params={"stage": corrected}))
+            c.status = "needs_review"
+            return TurnPlan(action="needs_review", detail="they changed a key answer more than once")
+        if corrected:
+            return self._reopen(c, corrected, ex, results, now)
+
         changed = [r.field for r in results if r.ok and r.field != "slot_choice"]
         if changed:
             c.flags.append(Note(code="changed_after_close", params={"fields": ",".join(changed)}))
@@ -334,6 +376,39 @@ class ScreeningEngine:
         }.get(c.status, c.status)
         return TurnPlan(action="post_close", detail=outcome,
                         question=ex.candidate_question if ex.intent == "question" else "")
+
+    def _knockout_correction(self, c: Candidate, results: list[FieldResult]) -> str | None:
+        """Did a disqualified candidate just correct the answer that disqualified them?"""
+        if c.status != "disqualified" or c.disqualification_reason is None:
+            return None
+        code = c.disqualification_reason.code
+        for r in results:
+            if r.ok and r.field == "license_status" and r.value == "yes" and code in ("no_license", "license_pending"):
+                return "license"
+            if r.ok and r.field == "location" and code == "out_of_area":
+                return "location"
+        return None
+
+    def _reopen(self, c: Candidate, corrected: str, ex: Extraction, results: list[FieldResult],
+                now: datetime) -> TurnPlan:
+        """Resume a closed screening after a one-time knockout correction (flagged for the recruiter)."""
+        if corrected == "license":
+            c.flags.append(Note(code="license_corrected"))
+            c.data.license_status = None  # re-applied from this message by _advance
+        else:
+            new_city = next(r.value["city"] for r in results if r.field == "location" and r.ok)
+            old_place = c.disqualification_reason.params.get("place", "?")
+            c.flags.append(Note(code="location_corrected", params={"old": old_place, "new": new_city}))
+        c.knockout_corrections += 1
+        c.status, c.closed = "in_progress", False
+        c.disqualification_reason = None
+        c.summary = None  # written for the old outcome; regenerated when the screening ends again
+        plan = self._advance(c, ex, results, now)
+        plan.tone = " ".join(filter(None, [plan.tone, (
+            "They corrected an earlier answer that had ended their application. Say briefly and warmly that "
+            "you've updated it and their application continues. Don't mention any review."
+        )]))
+        return plan
 
     # ---------------------------------------------------------------- helpers
 
@@ -356,7 +431,10 @@ class ScreeningEngine:
     def _disqualify(self, c: Candidate, reason: Note, explanation: str) -> TurnPlan:
         c.disqualification_reason = reason
         c.interview_status = "not_applicable"
-        return self._close(c, "disqualified", "disqualify", detail=explanation)
+        plan = self._close(c, "disqualified", "disqualify", detail=explanation)
+        # The goodbye invites a correction (typos happen); only once, see _plan_after_close.
+        plan.allow_correction = c.knockout_corrections == 0
+        return plan
 
     def _fresh_slots(self, c: Candidate, city, now: datetime, exclude: set[datetime] | None = None) -> list[datetime]:
         cfg = self.config.interview
@@ -486,7 +564,11 @@ def fallback_reply(plan: TurnPlan, c: Candidate) -> str:
     if plan.action == "ask":
         return FALLBACK_ASK[lang].get(plan.field or "", FALLBACK_ASK[lang]["full_name"])
     slots = "\n".join(f"{i}) {s}" for i, s in enumerate(plan.slots, 1))
-    return FALLBACK_ACTION[lang][plan.action].format(slots=slots, detail=plan.detail)
+    text = FALLBACK_ACTION[lang][plan.action].format(slots=slots, detail=plan.detail)
+    if plan.allow_correction:
+        text += (" Si te has equivocado al responder, escríbeme y seguimos." if lang == "es"
+                 else " If you answered by mistake, just reply and we'll continue.")
+    return text
 
 
 def fallback_summary(c: Candidate) -> RecruiterSummary:

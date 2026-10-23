@@ -155,13 +155,83 @@ def test_transcript_translation_is_cached(setup):
     assert all(m.meta["translations"]["en"] == f"[en] {m.content}" for m in msgs)
 
 
-def test_no_license_disqualifies_immediately(setup):
+def test_no_license_disqualifies_and_invites_correction(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
     say(engine, llm, cid, ex(full_name="Luis Pérez"))
-    c = say(engine, llm, cid, ex(license_status="no")).candidate
+    r = say(engine, llm, cid, ex(license_status="no"))
+    c = r.candidate
     assert c.status == "disqualified" and c.closed
     assert c.disqualification_reason.code == "no_license"
+    assert r.replies[0].meta["plan"]["allow_correction"] is True
+    assert "answered by mistake" in llm.last_instructions
+
+
+def _disqualify_for_license(engine, llm, cid):
+    say(engine, llm, cid, ex(full_name="Pablo García"))
+    return say(engine, llm, cid, ex(license_status="no")).candidate
+
+
+def test_license_correction_after_close_reopens_once(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    assert _disqualify_for_license(engine, llm, cid).status == "disqualified"
+    c = say(engine, llm, cid, ex(license_status="yes", vehicle_type="car")).candidate
+    assert c.status == "in_progress" and not c.closed and c.stage == "location"
+    assert c.disqualification_reason is None and c.knockout_corrections == 1
+    assert any(f.code == "license_corrected" for f in c.flags)
+    assert "application continues" in llm.last_instructions
+
+
+def test_second_knockout_flip_goes_to_human_review(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    _disqualify_for_license(engine, llm, cid)
+    say(engine, llm, cid, ex(license_status="yes"))               # correction 1: reopened
+    r = say(engine, llm, cid, ex(license_status="no"))            # disqualified again...
+    assert r.candidate.status == "disqualified"
+    assert r.replies[0].meta["plan"]["allow_correction"] is False  # ...without the invitation this time
+    c = say(engine, llm, cid, ex(license_status="yes")).candidate  # correction 2
+    assert c.status == "needs_review" and c.closed
+    assert any(f.code == "repeated_knockout_change" for f in c.flags)
+
+
+def test_location_correction_after_close_reopens(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    say(engine, llm, cid, ex(full_name="Luis Pérez", license_status="yes", vehicle_type="car"))
+    assert say(engine, llm, cid, ex(city="Toledo", country="ES")).candidate.status == "disqualified"
+    c = say(engine, llm, cid, ex(city="Madrid", zone="Retiro")).candidate
+    assert c.status == "in_progress" and c.data.city == "Madrid" and c.stage == "availability"
+    assert any(f.text() == "First said they live in Toledo, then corrected it to Madrid after being disqualified"
+               for f in c.flags)
+
+
+def test_correction_during_background_summary_is_not_overwritten(setup):
+    """Regression: a slow summary used to save a stale 'disqualified' copy over a reopened screening."""
+    engine, llm, storage = setup
+    cid = engine.start_conversation().id
+    _disqualify_for_license(engine, llm, cid)
+
+    def slow_summary(summary_input):
+        # While the summary model is "thinking", the candidate corrects their answer.
+        llm.extractions.append(ex(license_status="yes"))
+        engine.handle_message(cid, "sí tengo, me equivoqué")
+        raise LLMError("use template")
+
+    llm.summarize = slow_summary
+    engine.generate_summary(cid, only_if_closed=True)
+    c = storage.get_candidate(cid)
+    assert c.status == "in_progress" and c.knockout_corrections == 1 and c.summary is None
+
+
+def test_reopened_screening_discards_stale_summary(setup):
+    engine, llm, _ = setup
+    cid = engine.start_conversation().id
+    _disqualify_for_license(engine, llm, cid)
+    say(engine, llm, cid, ex(license_status="yes"))  # reopened before the background summary ran
+    engine.generate_summary(cid, only_if_closed=True)
+    assert engine.storage.get_candidate(cid).summary is None
 
 
 def test_out_of_area_disqualifies_and_flags_place(setup):
@@ -298,14 +368,12 @@ def test_prompt_injection_cannot_qualify(setup):
     assert c.status == "in_progress" and "off-topic" in llm.last_instructions
 
 
-def test_withdrawal_and_post_close_change_is_flagged(setup):
+def test_post_close_change_of_other_field_is_only_flagged(setup):
     engine, llm, _ = setup
     cid = engine.start_conversation().id
-    say(engine, llm, cid, ex(full_name="Ana García"))
-    c = say(engine, llm, cid, ex(license_status="no")).candidate
-    assert c.status == "disqualified"
-    c = say(engine, llm, cid, ex(license_status="yes")).candidate
-    assert c.status == "disqualified"
+    _disqualify_for_license(engine, llm, cid)
+    c = say(engine, llm, cid, ex(availability="full_time")).candidate
+    assert c.status == "disqualified" and c.closed
     assert any("tried to change" in f.text() for f in c.flags)
 
 
