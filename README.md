@@ -6,7 +6,7 @@ Sofía is a chat agent that screens delivery-driver applicants for Grupo Sazón,
 - Web chat that behaves like WhatsApp, in Spanish or English; the candidate can switch language at any time
 - Voice call mode in the browser (speech-to-text and text-to-speech), using the same pipeline as the chat
 - Several answers in one message, questions about the job, corrections and typos are all handled
-- Qualified candidates pick an interview slot from tap buttons; the booking is confirmed in the chat
+- Qualified candidates pick a day and time in a calendar card (today plus the next four working days), or just type one ("Tuesday at 4pm"); the booking is confirmed in the chat
 
 **Recruiter side**
 - **Candidates** dashboard: filter by status, country, city, availability, schedule, pipeline stage or name
@@ -182,7 +182,7 @@ The order of questions is: full name → driving license → vehicle → city �
 
 **The model fits the job.** Every turn uses Haiku, because latency matters in a chat and those calls run constantly. The summary uses Sonnet, because it runs once per candidate and recruiters read it. The summary call uses the API's server-side fallback, so a false-positive refusal doesn't lose a summary.
 
-**Booking is safe under concurrency.** Turns for the same candidate are processed one at a time with a per-candidate lock. The background summary is written only if the screening is still closed. The database guarantees that a slot can't be double-booked, and a tapped slot button skips the extraction call, so the choice is never misread.
+**Booking is safe under concurrency.** Turns for the same candidate are processed one at a time with a per-candidate lock. The background summary is written only if the screening is still closed. The database guarantees that a slot can't be double-booked, A tap in the calendar sends the slot itself (date and time, not a position in a list), so it skips the extraction call and a tap on an old calendar can't book a different time. A typed or spoken choice is extracted as a date and time and matched exactly against the free slots in code.
 
 **Voice reuses the same pipeline.** In voice mode the browser does speech-to-text and text-to-speech. The engine gets a `voice` channel flag that changes how a message is interpreted ("Globo" means Glovo) and how replies are phrased (no lists or emojis, dates said out loud). A name captured by voice is flagged for the recruiter to check the spelling.
 
@@ -216,67 +216,65 @@ These are real transcripts from the app (`claude-haiku-5-5`, 23 Oct 2026), unedi
 >
 > *Five fields extracted from one message: name, license = yes, vehicle = motorbike, city = Madrid, neighbourhood = Chamberí. Sofía skips straight to availability.*
 >
-> **Sofía:** ¡Gracias, Lucía! Perfecto, tener moto y carnet es un gran punto de partida. ¿Qué disponibilidad tienes: jornada completa, media jornada o solo fines de semana?
+> **Sofía:** ¡Gracias, Lucía! Qué bien que tengas moto y carnet. ¿Qué tipo de jornada te interesa: completa, parcial o solo fines de semana?
 >
 > **Lucía:** Media jornada, por las tardes. Por cierto, ¿cuánto se cobra?
 >
 > *Availability and schedule both captured. The pay question is answered from the job facts without quoting numbers.*
 >
-> **Sofía:** Buena pregunta, Lucía. El salario depende de la ciudad y de la disponibilidad que elijas, y el reclutador te lo explicará con detalle en la videollamada. ¿Tienes experiencia previa como repartidora, por ejemplo en Glovo o Uber Eats? Si es así, dime cuántos años y en qué plataformas.
+> **Sofía:** Pues el sueldo depende de la ciudad y de la disponibilidad que elijas, y el reclutador te lo explica con detalle en la videollamada. Lucía, ¿tienes experiencia previa como repartidora? Si es así, cuéntame cuánto tiempo y en qué plataformas.
 >
 > **Lucía:** Sí, 2 años en Glovo y Uber Eats
 >
-> **Sofía:** ¡Genial, Lucía! Con dos años en Glovo y Uber Eats tienes experiencia muy útil para el reparto. ¿Cuándo podrías empezar si avanzamos en el proceso?
+> **Sofía:** ¡Genial, Lucía! Con dos años en Glovo y Uber Eats tienes buena experiencia. ¿Cuándo podrías empezar a trabajar?
 >
 > **Lucía:** Podría empezar el lunes que viene
 >
-> *"Next Monday" is resolved to 2026-10-26. All requirements are met, so the code offers three free slots on different days, also shown as tap buttons.*
+> *"Next Monday" is resolved to 2026-10-26. All requirements are met, so the code attaches a calendar card: today plus the next four working days, with taken or too-soon times greyed out.*
 >
-> **Sofía:** ¡Buenas noticias, Lucía! Cumples los requisitos para avanzar a la siguiente fase. Te propongo una videollamada de 15 minutos con un reclutador. Elige un horario respondiendo con el número, o dime si ninguno te encaja:<br><br>1) Lunes 26 oct, 12:30<br>2) Miércoles 28 oct, 10:00<br>3) Jueves 29 oct, 17:00
+> **Sofía:** ¡Buenísimo, Lucía! Cumples con los requisitos para seguir adelante. El siguiente paso es una videollamada de 15 minutos con un reclutador. Elige en el calendario que aparece abajo el día y la hora que mejor te vengan, o pulsa "Ninguna me va bien" si ninguna encaja.
 >
-> **Lucía:** *(taps)* Miércoles 28 oct, 10:00
+> **Lucía:** *(picks in the calendar)* Martes 27 oct, 12:00
 >
-> **Sofía:** ¡Perfecto, Lucía! Tu videollamada queda reservada para el miércoles 28 de octubre a las 10:00. Recibirás el enlace y un recordatorio antes de la llamada. ¡Gracias por tu tiempo y mucha suerte!
+> **Sofía:** ¡Perfecto, Lucía! Tu videollamada con un reclutador queda reservada para el martes 27 de octubre a las 12:00. Recibirás el enlace y un recordatorio antes de la llamada. ¡Gracias por tu tiempo y nos vemos pronto! 😊
 
-### 2. Mexico: switching to English, an ambiguous city, and rescheduling
+### 2. Mexico: switching to English, an ambiguous city, and a typed interview time
 
 > **Daniel:** Me llamo Daniel Ortiz Méndez
 >
-> **Sofía:** ¡Gracias, Daniel! ¿Tienes carnet o licencia de conducir vigente? Si es así, dime si es para coche o para moto.
+> **Sofía:** Gracias, Daniel. ¿Tienes carnet o licencia de conducir vigente?
 >
 > **Daniel:** Sí, tengo licencia de manejo y tengo coche
 >
-> **Sofía:** ¡Perfecto, Daniel! ¿En qué ciudad vives y en qué zona o barrio?
+> **Sofía:** Genial, Daniel. ¿En qué ciudad vives y en qué zona o barrio?
 >
 > **Daniel:** Sorry, can we continue in English? I live in Guadalajara
 >
 > *The language switches to English. Guadalajara matches two service-area cities (Spain and Mexico), so the code asks which one.*
 >
-> **Sofía:** Of course, Daniel! Guadalajara exists in both Spain and Mexico, so could you tell me which country you're in? And what neighbourhood or area do you live in?
+> **Sofía:** Of course, Daniel, we can continue in English. Guadalajara exists in both Spain and Mexico, so could you tell me which country you live in? And what neighbourhood or area of Guadalajara are you in?
 >
 > **Daniel:** Mexico, in Zapopan
 >
-> **Sofía:** Thanks, Daniel, that's clear! Which schedule works best for you: full-time, part-time, or weekends only?
+> **Sofía:** Thanks, Daniel, that's all clear. Which schedule works best for you: full-time, part-time, or weekends only?
 >
 > **Daniel:** Weekends only, evenings
 >
-> **Sofía:** Thanks, Daniel, weekend evenings works well for us. Do you have any previous delivery experience? If yes, how many years and with which platforms, like Uber Eats or Rappi?
+> **Sofía:** Thanks, Daniel, that's clear. Do you have any previous delivery experience? If so, how many years, and with which platforms?
 >
 > **Daniel:** No experience, but I know the city really well
 >
-> **Sofía:** Thanks, Daniel! Knowing the city well is a real plus for deliveries. When could you start if you were selected?
+> **Sofía:** Thanks, Daniel! Knowing the city well is a real plus for deliveries. When could you start, if you're selected?
 >
 > **Daniel:** In two weeks
 >
-> **Sofía:** Great news, Daniel! You meet the requirements for this role, so the next step is a 15-minute video call with a recruiter. Which slot works for you? Reply with the number or tap one below. If none works, just let me know.<br><br>1) Monday 26 Oct, 10:00<br>2) Tuesday 27 Oct, 12:30<br>3) Wednesday 28 Oct, 17:00
+> **Sofía:** Great news, Daniel: you meet the requirements for this role! Next step is a 15-minute video call with a recruiter. Please pick a day and time that suits you from the calendar below, or tap "None of these work".
 >
-> **Daniel:** *(taps)* None of these work
+> **Daniel:** Could I do Tuesday at 4pm?
 >
-> **Sofía:** No problem, Daniel! Here are some other options for the 15-minute video call. Which one works for you?<br><br>1) Monday 26 Oct, 17:00<br>2) Tuesday 27 Oct, 17:00<br>3) Wednesday 28 Oct, 10:00
+> *Instead of using the calendar, he types a time. The extractor turns it into a date and time (Tuesday 27 Oct, 16:00, Guadalajara time), and the code books it only because it exactly matches a free slot.*
 >
-> **Daniel:** *(taps)* Monday 26 oct, 17:00
->
-> **Sofía:** Perfect, Daniel! Your 15-minute video call with a recruiter is booked for Monday 26 October at 17:00. You'll receive the link and a reminder before the call. Thanks for your time, and see you soon! 🙌
+> **Sofía:** Perfect, Daniel! I've booked your 15-minute video call with a recruiter for Tuesday at 4:00 pm (Guadalajara time). You'll receive the link and a reminder before the call. Thanks for your time, and good luck! 🙌
 >
 > *Result: qualified, Guadalajara (MX), neighbourhood Zapopan, weekends, evenings, no experience, starts 2026-11-06.*
 
